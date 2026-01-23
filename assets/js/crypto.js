@@ -63,6 +63,11 @@ class SecureVideoDecryptor {
         };
 
         console.log('🔐 SecureVideoDecryptor created');
+
+        // Heartbeat tracking
+        this.heartbeatFailures = 0;
+        this.maxHeartbeatFailures = 3;
+
     }
 
     // ================================================
@@ -191,6 +196,7 @@ class SecureVideoDecryptor {
         if (this.heartbeatInterval) {
             clearInterval(this.heartbeatInterval);
         }
+        this.heartbeatFailures = 0;
 
         this.heartbeatInterval = setInterval(async () => {
             try {
@@ -215,14 +221,44 @@ class SecureVideoDecryptor {
                     console.error('Session invalid:', data.error);
                     this.handleSessionExpired();
                 }
+                this.heartbeatFailures = 0;
 
             } catch (error) {
                 console.error('Heartbeat error:', error);
+                this.heartbeatFailures++;
+                if (this.heartbeatFailures >= this.maxHeartbeatFailures) {
+                    console.error('Heartbeat stopped: server unreachable');
+                    this.stopHeartbeat();
+                    this.handleSessionExpired();
+                }
             }
         }, this.config.heartbeatInterval);
     }
 
+    stopHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+    }
+
+
     handleSessionExpired() {
+
+        console.warn('Playback session expired');
+
+        this.stopHeartbeat();
+
+        if (this.chunkLoaderInterval) {
+            clearInterval(this.chunkLoaderInterval);
+        }
+        if(this.heartbeatInterval){
+            clearInterval(this.heartbeatInterval)
+        }
+
+        if (this.fetchController) {
+            this.fetchController.abort();
+        }
         clearInterval(this.heartbeatInterval);
         clearInterval(this.chunkLoaderInterval);
         
@@ -822,5 +858,12 @@ window.debugDecryptor = function() {
         console.log('VideoDecryptor not initialized');
     }
 };
+
+window.addEventListener('beforeunload', () => {
+    if (window.videoDecryptor) {
+        window.videoDecryptor.cleanup();
+    }
+});
+
 
 console.log('🔐 Secure DRM-like VideoDecryptor loaded');
