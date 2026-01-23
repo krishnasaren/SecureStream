@@ -1,0 +1,22 @@
+{
+    "users": {
+        "admin": {
+            "password": "$2y$10$RcN0S3sQtBM50L5VVgByZe\/8TQozN7ezduw239R.jdiUsW11Z0p2q",
+            "email": "admin@securestream.com",
+            "role": "admin",
+            "created_at": "2026-01-22 14:08:57",
+            "last_login": "2026-01-23 03:58:31"
+        },
+        "user": {
+            "password": "$2y$10$dx2WQgyt1MSVwx6qjh8n2e2AH1GZDUggDvL5L5lt47HngiK8X72jK",
+            "email": "user@securestream.com",
+            "role": "user",
+            "created_at": "2026-01-22 14:08:57",
+            "last_login": "2026-01-23 08:08:00"
+        }
+    },
+    "settings": {
+        "max_users": 100,
+        "registration_open": true
+    }
+}
