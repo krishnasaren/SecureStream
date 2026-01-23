@@ -160,7 +160,7 @@ class VideoEncryption
     }
 
 
-    private function generateChunkIV($baseIV, $chunkIndex)
+    public function generateChunkIV($baseIV, $chunkIndex)
     {
         // Clone the IV
         $chunkIV = $baseIV;
@@ -388,22 +388,43 @@ class VideoEncryption
         ];
     }
 
-    function deriveEphemeralKey($videoId, $chunkIndex)
+    public function deriveEphemeralKey($videoId, $chunk, $sessionId)
     {
-        if (
-            empty($_SESSION['playback'][$videoId]) ||
-            $_SESSION['playback'][$videoId]['expires'] < time()
-        ) {
-            throw new Exception('Playback session expired');
-        }
-
         return hash_hmac(
             'sha256',
-            $videoId . '|' . $chunkIndex . '|' . $_SESSION['playback'][$videoId]['token'],
+            "$videoId|$chunk|$sessionId",
             getMasterKey(),
             true
         );
     }
+
+
+    // INTERNAL USE ONLY
+    private function getRawVideoKey($videoId)
+    {
+        $keyFile = KEYS_DIR . $videoId . '/key.json';
+        if (!file_exists($keyFile))
+            return null;
+
+        $data = json_decode(file_get_contents($keyFile), true);
+        $master = getMasterKey();
+
+        return [
+            'key' => openssl_decrypt(
+                base64_decode($data['encrypted_key']),
+                'AES-256-ECB',
+                $master,
+                OPENSSL_RAW_DATA
+            ),
+            'iv' => openssl_decrypt(
+                base64_decode($data['encrypted_iv']),
+                'AES-256-ECB',
+                $master,
+                OPENSSL_RAW_DATA
+            )
+        ];
+    }
+
 
 }
 ?>
