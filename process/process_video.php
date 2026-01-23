@@ -1,14 +1,17 @@
 <?php
 require_once '../includes/config.php';
 
+require_once '../includes/encryption.php';
 class VideoProcessor
 {
     private $ffmpeg_path;
+    private $encryption;
 
     public function __construct()
     {
         // Update this path based on your system
         $this->ffmpeg_path = 'ffmpeg'; // or '/usr/bin/ffmpeg'
+        $this->encryption = new VideoEncryption();
     }
 
     public function processVideo($input_file, $video_id, $title = '')
@@ -27,8 +30,8 @@ class VideoProcessor
             }
 
             // Create directories for this video
-            $video_enc_path = ENCRYPTED_PATH . $video_id . '/';
-            $video_key_path = KEYS_PATH . $video_id . '/';
+            $video_enc_path = ENCRYPTED_DIR . $video_id . '/';
+            $video_key_path = KEYS_DIR . $video_id . '/';
 
             if (!is_dir($video_enc_path))
                 mkdir($video_enc_path, 0755, true);
@@ -136,8 +139,7 @@ class VideoProcessor
 
     private function saveVideoKey($video_id, $key, $iv, $title)
     {
-        $master_key = get_master_key();
-
+        $master_key = getMasterKey(); 
         // Encrypt video key with master key
         $encrypted_key = openssl_encrypt(
             $key,
@@ -163,14 +165,14 @@ class VideoProcessor
             'created_at' => date('Y-m-d H:i:s')
         ];
 
-        file_put_contents(KEYS_PATH . $video_id . '/key.json', json_encode($key_data, JSON_PRETTY_PRINT));
+        file_put_contents(KEYS_DIR . $video_id . '/key.json', json_encode($key_data, JSON_PRETTY_PRINT));
     }
 
     private function generateThumbnail($input_file, $video_id, $title)
     {
         echo "Generating thumbnail...\n";
 
-        $thumbnail_file = THUMBNAILS_PATH . $video_id . '.jpg';
+        $thumbnail_file = THUMBNAILS_DIR . $video_id . '.jpg';
         $cmd = escapeshellcmd("{$this->ffmpeg_path} -i " . escapeshellarg($input_file) .
             " -ss 00:00:05 -vframes 1 -vf 'scale=320:180' " . escapeshellarg($thumbnail_file));
 
@@ -216,11 +218,11 @@ class VideoProcessor
             'title' => $title ?: basename($input_file, '.mp4'),
             'original_file' => basename($input_file),
             'processed_at' => date('Y-m-d H:i:s'),
-            'chunk_count' => count(glob(ENCRYPTED_PATH . $video_id . '/*.enc')),
+            'chunk_count' => count(glob(ENCRYPTED_DIR . $video_id . '/*.enc')),
             'encryption' => ENCRYPTION_METHOD
         ];
 
-        file_put_contents(ENCRYPTED_PATH . $video_id . '/info.json', json_encode($info, JSON_PRETTY_PRINT));
+        file_put_contents(ENCRYPTED_DIR . $video_id . '/info.json', json_encode($info, JSON_PRETTY_PRINT));
     }
 }
 
@@ -249,7 +251,7 @@ if (php_sapi_name() === 'cli') {
     // Web interface for processing
     header('Content-Type: application/json');
 
-    if (!isset($_POST['video_path']) || !is_authenticated()) {
+    if (!isset($_POST['video_path']) || !isAuthenticated()) {
         echo json_encode(['error' => 'Unauthorized or invalid request']);
         exit;
     }
