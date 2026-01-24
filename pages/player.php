@@ -823,6 +823,7 @@ $chunkCount = $videoInfo['chunk_count'];
 
                 // Initialize decryptor
                 videoDecryptor = new VideoDecryptor();
+                window.videoDecryptor = videoDecryptor;
 
                 showLoading('Requesting decryption key...', 30);
                 const keyLoaded = await videoDecryptor.init(videoId);
@@ -1568,16 +1569,28 @@ $chunkCount = $videoInfo['chunk_count'];
             if (!window.videoDecryptor) return;
 
             document.getElementById('quality-menu').classList.remove('show');
-            document.getElementById('quality-switching').classList.add('show');
 
-            const success = await window.videoDecryptor.switchQuality(quality);
+            const switchingIndicator = document.getElementById('quality-switching');
+            switchingIndicator.classList.add('show');
 
-            if (success) {
-                document.getElementById('current-quality-text').textContent = quality;
-                updateQualityMenuActive(quality);
+            try {
+                const success = await window.videoDecryptor.switchQuality(quality);
+
+                if (success) {
+                    document.getElementById('current-quality-text').textContent = quality;
+                    updateQualityMenuActive(quality);
+
+                    // Show success notification
+                    showNotification(`Quality changed to ${quality}`, 'success');
+                } else {
+                    showNotification('Failed to switch quality', 'error');
+                }
+            } catch (error) {
+                console.error('Quality switch error:', error);
+                showNotification('Quality switch error', 'error');
+            } finally {
+                switchingIndicator.classList.remove('show');
             }
-
-            document.getElementById('quality-switching').classList.remove('show');
         }
         async function switchAudioTrack(index) {
             if (!window.videoDecryptor) {
@@ -1585,29 +1598,24 @@ $chunkCount = $videoInfo['chunk_count'];
                 return;
             }
 
-            // Validate index
             if (index < 0 || index >= window.videoDecryptor.audioTracks.length) {
                 console.error('Invalid audio track index:', index);
                 return;
             }
 
-            // Check if already on this track
             if (window.videoDecryptor.currentAudioTrack === index) {
                 console.log('Already on this audio track');
                 document.getElementById('audio-menu').classList.remove('show');
                 return;
             }
 
-            // Close menu
             document.getElementById('audio-menu').classList.remove('show');
 
-            // Show switching indicator
             const switchingIndicator = document.getElementById('audio-switching');
             if (switchingIndicator) {
                 switchingIndicator.classList.add('show');
             }
 
-            // Disable audio menu during switch
             const audioBtn = document.getElementById('audio-btn');
             if (audioBtn) {
                 audioBtn.disabled = true;
@@ -1615,14 +1623,11 @@ $chunkCount = $videoInfo['chunk_count'];
             }
 
             try {
-                // Use retry logic
                 const success = await window.videoDecryptor.switchAudioTrackWithRetry(index, 2);
 
                 if (success) {
-                    // Update UI
                     updateAudioMenuActive(index);
 
-                    // Show success notification
                     const trackName = window.videoDecryptor.audioTracks[index].title ||
                         `Audio Track ${index + 1}`;
                     const trackLang = window.videoDecryptor.audioTracks[index].language || 'unknown';
@@ -1632,27 +1637,63 @@ $chunkCount = $videoInfo['chunk_count'];
                     console.log(`✅ Audio track switched successfully to: ${trackName}`);
 
                 } else {
-                    // Show error notification
-                    showAudioChangeNotification('Failed to switch audio track', '', false);
+                    showNotification('Failed to switch audio track', 'error');
                     console.error('❌ Audio track switch failed');
                 }
 
             } catch (error) {
                 console.error('❌ Audio track switch error:', error);
-                showAudioChangeNotification('Audio switch error', '', false);
+                showNotification('Audio switch error', 'error');
 
             } finally {
-                // Hide switching indicator
                 if (switchingIndicator) {
                     switchingIndicator.classList.remove('show');
                 }
 
-                // Re-enable audio menu
                 if (audioBtn) {
                     audioBtn.disabled = false;
                     audioBtn.style.opacity = '1';
                 }
             }
+        }
+
+
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+            position: fixed;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 10010;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            animation: slideDown 0.3s ease;
+            `;
+
+            if (type === 'success') {
+                notification.style.background = 'rgba(16, 185, 129, 0.95)';
+                notification.style.color = 'white';
+            } else if (type === 'error') {
+                notification.style.background = 'rgba(239, 68, 68, 0.95)';
+                notification.style.color = 'white';
+            } else {
+                notification.style.background = 'rgba(102, 126, 234, 0.95)';
+                notification.style.color = 'white';
+            }
+
+            notification.textContent = message;
+
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transition = 'opacity 0.3s';
+                setTimeout(() => notification.remove(), 300);
+            }, 2000);
         }
 
 

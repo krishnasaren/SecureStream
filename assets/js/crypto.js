@@ -22,7 +22,7 @@ class SecureVideoDecryptor {
 
         // Multi-quality support
         this.availableQualities = [];
-        this.currentQuality = '720p';
+        this.currentQuality = '360p';
         this.qualitySwitching = false;
 
         // Multi-audio support
@@ -171,7 +171,19 @@ class SecureVideoDecryptor {
         return this.availableQualities[0] || '720p';
     }
 
+    async fetchInitSegmentWithQuality(track, quality) {
+        const url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch ${track} init segment for ${quality}`);
+        }
+
+        return response.arrayBuffer();
+    }
+
     async switchQuality(newQuality) {
+        console.log(`🔍 Request to switch quality to: ${newQuality}`);
         if (!this.availableQualities.includes(newQuality)) {
             console.warn('Quality not available:', newQuality);
             return false;
@@ -189,6 +201,11 @@ class SecureVideoDecryptor {
         const wasPlaying = !videoEl.paused;
 
         try {
+            // ⭐ PAUSE VIDEO FIRST
+            if (!videoEl.paused) {
+                videoEl.pause();
+            }
+
             // Stop current loading
             if (this.chunkLoaderInterval) {
                 clearInterval(this.chunkLoaderInterval);
@@ -208,12 +225,57 @@ class SecureVideoDecryptor {
             const oldQuality = this.currentQuality;
             this.currentQuality = newQuality;
 
-            // Clear buffers
-            await this.clearAllBuffers();
+            // ⭐ RE-INITIALIZE MediaSource completely
+            const mediaSourceURL = videoEl.src;
+
+            // Clear existing buffers
+            if (this.videoBuffer && !this.videoBuffer.updating) {
+                try {
+                    for (let i = 0; i < this.videoBuffer.buffered.length; i++) {
+                        const start = this.videoBuffer.buffered.start(i);
+                        const end = this.videoBuffer.buffered.end(i);
+                        this.videoBuffer.remove(start, end);
+                        await this.waitForUpdate(this.videoBuffer);
+                    }
+                } catch (e) {
+                    console.warn('Video buffer clear warning:', e);
+                }
+            }
+
+            if (this.audioBuffer && !this.audioBuffer.updating) {
+                try {
+                    for (let i = 0; i < this.audioBuffer.buffered.length; i++) {
+                        const start = this.audioBuffer.buffered.start(i);
+                        const end = this.audioBuffer.buffered.end(i);
+                        this.audioBuffer.remove(start, end);
+                        await this.waitForUpdate(this.audioBuffer);
+                    }
+                } catch (e) {
+                    console.warn('Audio buffer clear warning:', e);
+                }
+            }
+
+            // ⭐ Fetch NEW init segments for new quality
+            console.log(`📼 Loading init segments for ${newQuality}...`);
+
+            const [vInit, aInit] = await Promise.all([
+                this.fetchInitSegmentWithQuality('video', newQuality),
+                this.fetchInitSegmentWithQuality('audio', newQuality)
+            ]);
+
+            // Append new init segments
+            this.videoBuffer.appendBuffer(vInit);
+            await this.waitForUpdate(this.videoBuffer);
+
+            this.audioBuffer.appendBuffer(aInit);
+            await this.waitForUpdate(this.audioBuffer);
 
             // Calculate chunk for current time
             const chunkDuration = this.videoInfo.chunk_size_seconds;
             this.currentChunk = Math.floor(currentTime / chunkDuration);
+
+            // ⭐ Reset stream state
+            this.streamEnded = false;
 
             // Restart loader
             this.startChunkLoader();
@@ -224,22 +286,30 @@ class SecureVideoDecryptor {
             // Seek to position
             videoEl.currentTime = currentTime;
 
+            // Resume playback if needed
             if (wasPlaying) {
                 await videoEl.play();
             }
 
             console.log(`✅ Quality switched to ${newQuality}`);
-            
+
             // Notify UI
-            this.dispatchEvent('qualityChanged', { 
-                from: oldQuality, 
-                to: newQuality 
+            this.dispatchEvent('qualityChanged', {
+                from: oldQuality,
+                to: newQuality
             });
 
             return true;
 
         } catch (error) {
             console.error('Quality switch failed:', error);
+
+            // ⭐ ROLLBACK on failure
+            this.currentQuality = oldQuality;
+            this.chunkQueue = [];
+            this.pendingChunks.clear();
+            this.startChunkLoader();
+
             return false;
         } finally {
             this.qualitySwitching = false;
@@ -389,6 +459,11 @@ class SecureVideoDecryptor {
             this.qualitySwitching = true;
             this.showBuffering();
 
+            // ⭐ PAUSE VIDEO
+            if (!videoEl.paused) {
+                videoEl.pause();
+            }
+
             // Stop current chunk loading
             if (this.chunkLoaderInterval) {
                 clearInterval(this.chunkLoaderInterval);
@@ -408,18 +483,36 @@ class SecureVideoDecryptor {
             const oldTrack = this.currentAudioTrack;
             this.currentAudioTrack = trackIndex;
 
+            // ⭐ RE-FETCH AUDIO INIT SEGMENT for new track
+            console.log(`📼 Loading audio init segment for track ${trackIndex}...`);
+
+            // Calculate correct stream ID
+            const audioStreamId = 1 + trackIndex; // stream0=video, stream1=audio0, stream2=audio1, etc.
+
+            const aInit = await this.fetchInitSegmentForAudioTrack(trackIndex);
+
             // Clear only audio buffer
             await this.clearAudioBuffer();
+
+            // Append new audio init segment
+            this.audioBuffer.appendBuffer(aInit);
+            await this.waitForUpdate(this.audioBuffer);
 
             // Calculate current chunk
             const chunkDuration = this.videoInfo.chunk_size_seconds;
             this.currentChunk = Math.floor(currentTime / chunkDuration);
+
+            // ⭐ Reset stream state
+            this.streamEnded = false;
 
             // Restart chunk loader with new audio track
             this.startChunkLoader();
 
             // Wait for audio buffer to fill
             await this.waitForAudioBuffer(currentTime, 2.0);
+
+            // Seek to maintain position
+            videoEl.currentTime = currentTime;
 
             // Resume playback if it was playing
             if (wasPlaying) {
@@ -456,11 +549,33 @@ class SecureVideoDecryptor {
 
             this.hideBuffering();
 
-            throw error; // Re-throw for retry logic
+            throw error;
 
         } finally {
             this.qualitySwitching = false;
         }
+    }
+
+    async fetchInitSegmentForAudioTrack(trackIndex) {
+        // Stream IDs: 0=video, 1=audio_track_0, 2=audio_track_1, etc.
+        const audioStreamId = 1 + trackIndex;
+
+        // Try quality folder first
+        let url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=audio&quality=${this.currentQuality}&stream_id=${audioStreamId}`;
+
+        let response = await fetch(url);
+
+        // Fallback to root folder
+        if (!response.ok) {
+            url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=audio&stream_id=${audioStreamId}`;
+            response = await fetch(url);
+        }
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch audio init segment for track ${trackIndex}`);
+        }
+
+        return response.arrayBuffer();
     }
 
     showBuffering() {
@@ -565,33 +680,40 @@ class SecureVideoDecryptor {
             if (!response.ok) throw new Error('Failed to load subtitle');
 
             const vttText = await response.text();
-            
-            // Create subtitle track element
-            const videoEl = document.getElementById('secure-video');
-            
-            // Remove existing subtitle tracks
-            Array.from(videoEl.textTracks).forEach(t => {
-                if (t.kind === 'subtitles') {
-                    t.mode = 'disabled';
-                }
-            });
 
-            // Add new track
+            const videoEl = document.getElementById('secure-video');
+
+            // ⭐ Remove ALL existing subtitle tracks
+            const existingTracks = videoEl.querySelectorAll('track[kind="subtitles"]');
+            existingTracks.forEach(t => t.remove());
+
+            // ⭐ Create blob URL for VTT content
+            const blob = new Blob([vttText], { type: 'text/vtt' });
+            const blobUrl = URL.createObjectURL(blob);
+
+            // ⭐ Create new track element
             const trackEl = document.createElement('track');
             trackEl.kind = 'subtitles';
-            trackEl.label = track.title;
-            trackEl.srclang = track.language;
-            trackEl.src = 'data:text/vtt;base64,' + btoa(vttText);
+            trackEl.label = track.title || track.language;
+            trackEl.srclang = track.language || 'en';
+            trackEl.src = blobUrl;
             trackEl.default = true;
 
             videoEl.appendChild(trackEl);
+
+            // ⭐ Wait for track to load
+            await new Promise((resolve) => {
+                trackEl.addEventListener('load', resolve, { once: true });
+            });
+
+            // ⭐ Enable the track
             trackEl.track.mode = 'showing';
 
             this.currentSubtitle = trackIndex;
-            
+
             console.log(`📝 Loaded subtitle: ${track.title}`);
-            
-            this.dispatchEvent('subtitleLoaded', { 
+
+            this.dispatchEvent('subtitleLoaded', {
                 index: trackIndex,
                 track: track
             });
@@ -606,11 +728,20 @@ class SecureVideoDecryptor {
 
     disableSubtitles() {
         const videoEl = document.getElementById('secure-video');
+
+        // Disable all text tracks
         Array.from(videoEl.textTracks).forEach(t => {
             t.mode = 'disabled';
         });
-        
+
+        // Remove track elements
+        const existingTracks = videoEl.querySelectorAll('track[kind="subtitles"]');
+        existingTracks.forEach(t => t.remove());
+
         this.currentSubtitle = -1;
+
+        console.log('📝 Subtitles disabled');
+
         this.dispatchEvent('subtitleDisabled', {});
     }
     dispatchEvent(eventName, detail) {
@@ -926,8 +1057,8 @@ class SecureVideoDecryptor {
         console.log('🎬 Fetching init segments...');
 
         const [vInit, aInit] = await Promise.all([
-            this.fetchInitSegment('video'),
-            this.fetchInitSegment('audio')
+            this.fetchInitSegmentWithQuality('video',this.currentQuality),
+            this.fetchInitSegmentWithQuality('audio',this.currentQuality)
         ]);
 
         this.videoBuffer.appendBuffer(vInit);
@@ -942,14 +1073,14 @@ class SecureVideoDecryptor {
         console.log(`✅ Init segments appended, duration: ${totalDuration}s`);
     }
 
-    async fetchInitSegment(track) {
-        const url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=${track}`;
+    async fetchInitSegment(track, quality) {
+        const url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}`;
         const response = await fetch(url);
-        
+
         if (!response.ok) {
             throw new Error(`Failed to fetch ${track} init segment`);
         }
-        
+
         return response.arrayBuffer();
     }
 

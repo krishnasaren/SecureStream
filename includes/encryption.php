@@ -16,7 +16,7 @@ class VideoEncryption
             'width' => 854,
             'height' => 480,
             'audio_bitrate' => '128k'
-        ],/*
+        ],
         '720p' => [
             'video_bitrate' => '2800k',
             'width' => 1280,
@@ -28,7 +28,7 @@ class VideoEncryption
             'width' => 1920,
             'height' => 1080,
             'audio_bitrate' => '256k'
-        ]*/
+        ]
     ];
 
     public function encryptVideo($videoId, $inputFile, $title = '', $description = '')
