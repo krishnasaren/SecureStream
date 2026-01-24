@@ -94,6 +94,11 @@ class VideoEncryption
         // 2️⃣ Leave init segments UNENCRYPTED
         // init-stream0.m4s (video)
         // init-stream1.m4s (audio)
+        /*$initSegments = glob($outputDir . 'init-stream*.m4s');
+
+        foreach ($initSegments as $initFile) {
+            $this->encryptInitSegment($initFile, $key, $iv);
+        }*/
 
         // 3️⃣ Encrypt ONLY media fragments
         $mediaChunks = glob($outputDir . 'chunk-stream*.m4s');
@@ -122,6 +127,35 @@ class VideoEncryption
         // ✅ RETURN NUMBER OF TIME SEGMENTS
         return count($segmentIndexes);
     }
+
+    private function encryptInitSegment($file, $key, $iv)
+    {
+        $data = file_get_contents($file);
+        if ($data === false) {
+            throw new Exception("Failed to read init segment: $file");
+        }
+
+        // Fixed IV for init segment
+        $initIV = $this->generateChunkIV($iv, -1);
+
+        $encrypted = openssl_encrypt(
+            $data,
+            ENCRYPTION_METHOD,
+            $key,
+            OPENSSL_RAW_DATA,
+            $initIV
+        );
+
+        if ($encrypted === false) {
+            throw new Exception("Failed to encrypt init segment");
+        }
+
+        $encFile = preg_replace('/\.m4s$/', '.enc', $file);
+
+        file_put_contents($encFile, $encrypted);
+        //unlink($file);
+    }
+
 
 
     private function encryptChunk($chunkFile, $key, $iv, $chunkIndex)

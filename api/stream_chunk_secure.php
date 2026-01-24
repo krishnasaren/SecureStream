@@ -12,11 +12,12 @@ require_once '../includes/config.php';
 require_once '../includes/auth.php';
 require_once '../includes/secure_drm.php';
 
-$auth = new Auth();
+//commented out because of parallel chunk access in PHP which SESSION cannot handle, thread locking issue
+/*$auth = new Auth();
 if (!$auth->getCurrentUser()) {
     http_response_code(401);
     exit;
-}
+}*/
 
 $videoId = $_GET['video_id'] ?? '';
 $track = $_GET['track'] ?? '';

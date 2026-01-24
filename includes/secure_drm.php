@@ -22,7 +22,7 @@ class SecurePlaybackManager
 {
     private $sessionTimeout = 3600; // 1 hour max session
     private $chunkTimeout = 30; // 30 seconds per chunk key
-    private $maxRequestsPerMinute = 120; // Rate limiting
+    private $maxRequestsPerMinute = 1000; // old 120 Rate limiting
 
     /**
      * Initialize a secure playback session

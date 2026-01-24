@@ -581,7 +581,7 @@ $chunkCount = $videoInfo['chunk_count'];
         </div>
 
         <!-- Video Element -->
-        <video id="secure-video" playsinline></video>
+        <video id="secure-video" playsinline muted autoplay></video>
 
         <!-- Center Play Button -->
         <div class="center-play-btn" id="center-play-btn" onclick="togglePlay()">▶️</div>
