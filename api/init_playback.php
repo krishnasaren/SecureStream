@@ -18,6 +18,10 @@ if (!$auth->getCurrentUser()) {
     echo json_encode(['success' => false, 'error' => 'Not authenticated']);
     exit;
 }
+if (!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
+    echo json_encode(['success' => false, 'error' => 'CSRF validation failed']);
+    exit;
+}
 
 $videoId = $_POST['video_id'] ?? '';
 if (empty($videoId)) {

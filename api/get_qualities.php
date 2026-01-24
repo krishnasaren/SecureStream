@@ -11,11 +11,16 @@ if (!$auth->getCurrentUser()) {
     exit;
 }
 
-$videoId = $_GET['video_id'] ?? '';
+$videoId = $_POST['video_id'] ?? '';
 
 if (empty($videoId)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Video ID required']);
+    exit;
+}
+
+if (!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
+    echo json_encode(['success' => false, 'error' => 'CSRF validation failed']);
     exit;
 }
 

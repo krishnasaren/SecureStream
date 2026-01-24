@@ -1,0 +1,115 @@
+# =========================================================
+# SecureStream Project - Security .htaccess
+# =========================================================
+
+# ---------------------------------------------------------
+# 1. Disable directory listing
+# ---------------------------------------------------------
+Options -Indexes
+
+# ---------------------------------------------------------
+# 2. Deny access to sensitive directories (ABSOLUTE BLOCK)
+# ---------------------------------------------------------
+#<IfModule mod_authz_core.c>
+ #   <DirectoryMatch "(^|/)(videos|keys|encrypted|original|uploads|logs|sessions|private|storage)">
+  #      Require all denied
+   # </DirectoryMatch>
+#</IfModule>
+
+#<IfModule !mod_authz_core.c>
+ #   <DirectoryMatch "(^|/)(videos|keys|encrypted|original|uploads|logs|sessions|private|storage)">
+  #      Order allow,deny
+   #     Deny from all
+    #</DirectoryMatch>
+#</IfModule>
+
+# ---------------------------------------------------------
+# 3. Protect API directory (ONLY PHP access)
+# ---------------------------------------------------------
+#<DirectoryMatch "/api">
+#    Options -Indexes
+#    <FilesMatch ".*">
+#       Require all denied
+ #   </FilesMatch>
+#
+#   <FilesMatch "\.php$">
+#       Require all granted
+#   </FilesMatch>
+#</DirectoryMatch>
+
+# ---------------------------------------------------------
+# 4. Block direct access to key material & manifests
+# ---------------------------------------------------------
+<FilesMatch "\.(key|pem|crt|env|ini|log|json)$">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------
+# 5. Prevent access to encrypted video chunks directly
+# ---------------------------------------------------------
+<FilesMatch "\.(m4s|mpd|ts|key|enc)$">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------
+# 6. Block access to config & internal PHP files
+# ---------------------------------------------------------
+<FilesMatch "(config|database|auth|session|bootstrap|init)\.php$">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------
+# 7. Prevent PHP execution in uploads / videos
+# ---------------------------------------------------------
+#<DirectoryMatch "(uploads|videos|encrypted|original)">
+    #php_flag engine off
+#</DirectoryMatch>
+
+# ---------------------------------------------------------
+# 8. Security headers
+# ---------------------------------------------------------
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "DENY"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+</IfModule>
+
+# ---------------------------------------------------------
+# 9. Block common attack vectors
+# ---------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block access to hidden files (.git, .env, .htaccess)
+    RewriteRule "(^|/)\." - [F]
+
+    # Block backup & temp files
+    RewriteRule \.(bak|old|orig|save|swp|sql)$ - [F,NC]
+
+    # Block path traversal
+    RewriteCond %{QUERY_STRING} (\.\./|\.\.\\) [NC]
+    RewriteRule .* - [F]
+</IfModule>
+
+# ---------------------------------------------------------
+# 10. Force HTTPS (optional but HIGHLY recommended)
+# ---------------------------------------------------------
+# Uncomment ONLY if SSL is enabled
+#
+# RewriteCond %{HTTPS} off
+# RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# ---------------------------------------------------------
+# 11. Limit request methods
+# ---------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteCond %{REQUEST_METHOD} !^(GET|POST|HEAD|OPTIONS)$
+    RewriteRule .* - [F]
+</IfModule>
+
+# ---------------------------------------------------------
+# 12. Disable MIME sniffing for scripts
+# ---------------------------------------------------------
+AddType application/octet-stream .m4s .mpd

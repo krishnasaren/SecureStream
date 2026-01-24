@@ -81,6 +81,8 @@ class SecureVideoDecryptor {
         this.heartbeatFailures = 0;
         this.maxHeartbeatFailures = 3;
 
+        this.csrf_token = csrf_token;
+
     }
 
     // ================================================
@@ -142,7 +144,7 @@ class SecureVideoDecryptor {
         const response = await fetch('/stream/api/init_playback.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `video_id=${encodeURIComponent(videoId)}`
+            body: `video_id=${encodeURIComponent(videoId)}&csrf_token=${encodeURIComponent(this.csrf_token)}`
         });
 
         if (!response.ok) {
@@ -152,7 +154,15 @@ class SecureVideoDecryptor {
         return await response.json();
     }
     async fetchAvailableTracks() {
-        const response = await fetch(`/stream/api/get_qualities.php?video_id=${this.videoId}`);
+        const response = await fetch(`/stream/api/get_qualities.php`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Cache-Control": "no-cache",
+          },
+          body: `video_id=${encodeURIComponent(this.videoId)}&csrf_token=${encodeURIComponent(this.csrf_token)}`,
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return await response.json();
     }
@@ -172,7 +182,7 @@ class SecureVideoDecryptor {
     }
 
     async fetchInitSegmentWithQuality(track, quality) {
-        const url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}`;
+        const url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}&csrf_token=${this.csrf_token}`;
         const response = await fetch(url);
 
         if (!response.ok) {
@@ -561,13 +571,13 @@ class SecureVideoDecryptor {
         const audioStreamId = 1 + trackIndex;
 
         // Try quality folder first
-        let url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=audio&quality=${this.currentQuality}&stream_id=${audioStreamId}`;
+        let url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=audio&quality=${this.currentQuality}&stream_id=${audioStreamId}&csrf_token=${this.csrf_token}`;
 
         let response = await fetch(url);
 
         // Fallback to root folder
         if (!response.ok) {
-            url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=audio&stream_id=${audioStreamId}`;
+            url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=audio&stream_id=${audioStreamId}&csrf_token=${this.csrf_token}`;
             response = await fetch(url);
         }
 
@@ -750,9 +760,14 @@ class SecureVideoDecryptor {
     }
 
     async fetchVideoInfo() {
-        const response = await fetch(`/stream/api/video_info.php?id=${this.videoId}`, {
-            credentials: 'same-origin',
-            headers: { 'Cache-Control': 'no-cache' }
+        const response = await fetch(`/stream/api/video_info.php`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Cache-Control": "no-cache",
+          },
+          body: `id=${encodeURIComponent(videoId)}&csrf_token=${encodeURIComponent(this.csrf_token)}`,
         });
 
         if (!response.ok) {
@@ -1074,7 +1089,7 @@ class SecureVideoDecryptor {
     }
 
     async fetchInitSegment(track, quality) {
-        const url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}`;
+        const url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}&csrf_token=${this.csrf_token}`;
         const response = await fetch(url);
 
         if (!response.ok) {

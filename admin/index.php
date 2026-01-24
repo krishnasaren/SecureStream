@@ -544,6 +544,7 @@ $recentVideos = array_slice($videos, 0, 5);
         function showSystemLogs() {
             alert('System logs feature coming soon!');
         }
+        const csrf_token = <?php echo json_encode($_SESSION['csrf_token']); ?>;
 
         function deleteVideo(videoId) {
             if (confirm('Are you sure you want to delete this video?\n\nThis will permanently delete all encrypted chunks and keys.')) {
@@ -552,7 +553,7 @@ $recentVideos = array_slice($videos, 0, 5);
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded'
                         },
-                        body: 'video_id=' + encodeURIComponent(videoId)
+                        body: 'video_id=' + encodeURIComponent(videoId)+'&csrf_token='+encodeURIComponent(csrf_token)
                     })
                     .then(response => response.json())
                     .then(data => {

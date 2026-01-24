@@ -96,6 +96,7 @@ class Auth
             $_SESSION['authenticated'] = true;
             $_SESSION['role'] = $user['role'];
             $_SESSION['email'] = $user['email'];
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 
             // Update last login
             $data['users'][$username]['last_login'] = date('Y-m-d H:i:s');

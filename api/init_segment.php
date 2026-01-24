@@ -12,6 +12,11 @@ $videoId = $_GET['video_id'] ?? '';
 $track = $_GET['track'] ?? '';
 $quality = $_GET['quality'] ?? '360p';  // ⭐ ADD THIS
 
+if (!hash_equals($_SESSION['csrf_token'], $_GET['csrf_token'] ?? '')) {
+    http_response_code(417);
+    exit;
+}
+
 if (
     empty($videoId) ||
     ($track !== 'video' && $track !== 'audio') ||
@@ -40,7 +45,7 @@ if (!is_file($file)) {
     exit;
 }
 
-header('Content-Type: video/mp4');
+//header('Content-Type: video/mp4');
 header('Content-Length: ' . filesize($file));
 header('Cache-Control: public, max-age=31536000');
 header('X-Content-Type-Options: nosniff');

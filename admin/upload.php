@@ -464,6 +464,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label for="title">Video Title *</label>
                     <input type="text" id="title" name="title" required placeholder="Enter video title"
                         value="<?php echo htmlspecialchars($title); ?>">
+                    <input type="hidden" id="csrf_token" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                 </div>
 
                 <div class="form-group">
@@ -485,7 +486,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="file-upload-icon">📁</div>
                         <div class="file-upload-text" id="file-name">Click to select MP4 video file</div>
                         <div class="file-upload-hint">Max file size: 2GB</div>
-                        <input type="file" id="video_file" name="video_file" accept="video/mp4" required>
+                        <input type="file" id="video_file" name="video_file" accept="video/mp4,video/mpeg,video/quicktime,video/x-matroska,video/webm" required>
                     </div>
                 </div>
 

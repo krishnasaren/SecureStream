@@ -24,6 +24,11 @@ if (!$videoId) {
     exit;
 }
 
+if (!hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'] ?? '')) {
+    echo json_encode(['success' => false, 'error' => 'CSRF validation failed']);
+    exit;
+}
+
 try {
     deleteVideoCompletely($videoId);
 

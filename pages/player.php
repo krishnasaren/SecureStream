@@ -785,6 +785,7 @@ $chunkCount = $videoInfo['chunk_count'];
                 cycleAudioTrack();
             }
         });
+        const csrf_token = <?php echo json_encode($_SESSION['csrf_token']); ?>;
 
         // ============================================
         // GLOBAL VARIABLES
