@@ -199,3 +199,11 @@
 {"timestamp":"2026-01-24 19:52:30","video_id":"video_1769256592","user_id":"admin","event":"SESSION_CREATED","ip":"::1","data":{"token":"480f3148...","ip":"::1"}}
 {"timestamp":"2026-01-24 19:53:00","video_id":"video_1769256592","user_id":"admin","event":"SESSION_CREATED","ip":"::1","data":{"token":"f4312402...","ip":"::1"}}
 {"timestamp":"2026-01-24 19:55:05","video_id":"video_1769256592","user_id":"admin","event":"SESSION_EXPIRED","ip":"::1","data":{"duration":3624}}
+{"timestamp":"2026-01-24 19:56:54","video_id":"video_1769256592","user_id":"admin","event":"SESSION_CREATED","ip":"::1","data":{"token":"3bc99358...","ip":"::1"}}
+{"timestamp":"2026-01-24 19:57:28","video_id":"video_1769256592","user_id":"admin","event":"SESSION_CREATED","ip":"::1","data":{"token":"d4ac87dd...","ip":"::1"}}
+{"timestamp":"2026-01-24 19:57:28","video_id":"video_1769256592","user_id":"admin","event":"CHUNK_SERVED","ip":"::1","data":{"track":"video","index":0,"quality":"480p","audio_track":0,"stream_id":0}}
+{"timestamp":"2026-01-24 19:57:28","video_id":"video_1769256592","user_id":"admin","event":"CHUNK_SERVED","ip":"::1","data":{"track":"audio","index":0,"quality":"480p","audio_track":0,"stream_id":1}}
+{"timestamp":"2026-01-24 19:57:29","video_id":"video_1769256592","user_id":"admin","event":"CHUNK_SERVED","ip":"::1","data":{"track":"video","index":1,"quality":"480p","audio_track":0,"stream_id":0}}
+{"timestamp":"2026-01-24 19:57:29","video_id":"video_1769256592","user_id":"admin","event":"CHUNK_SERVED","ip":"::1","data":{"track":"audio","index":1,"quality":"480p","audio_track":0,"stream_id":1}}
+{"timestamp":"2026-01-24 19:57:29","video_id":"video_1769256592","user_id":"admin","event":"CHUNK_SERVED","ip":"::1","data":{"track":"video","index":2,"quality":"480p","audio_track":0,"stream_id":0}}
+{"timestamp":"2026-01-24 19:57:29","video_id":"video_1769256592","user_id":"admin","event":"CHUNK_SERVED","ip":"::1","data":{"track":"audio","index":2,"quality":"480p","audio_track":0,"stream_id":1}}
