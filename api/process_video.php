@@ -48,11 +48,11 @@ if (!isset($_FILES['video_file']) || $_FILES['video_file']['error'] !== UPLOAD_E
 }
 
 // Validate file type
-$allowedTypes = ['video/mp4', 'video/mpeg', 'video/quicktime'];
+$allowedTypes = ['video/mp4', 'video/mpeg', 'video/quicktime','video/x-matroska','video/webm'];
 $fileType = mime_content_type($_FILES['video_file']['tmp_name']);
 
 if (!in_array($fileType, $allowedTypes)) {
-    echo json_encode(['success' => false, 'error' => 'Invalid file type. Only MP4 files are allowed.']);
+    echo json_encode(['success' => false, 'error' => 'Invalid file type. Only MP4, WebM, MKV, and MOV files are allowed.']);
     exit;
 }
 

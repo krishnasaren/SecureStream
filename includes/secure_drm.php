@@ -301,6 +301,309 @@ class SecurePlaybackManager
         exit;
     }
 
+
+    public function serveSecureChunkMultiQuality($videoId, $track, $chunkIndex, $sessionToken, $quality = '720p')
+    {
+        // Validate session
+        $validation = $this->validateSession($sessionToken);
+        if (!$validation['valid']) {
+            http_response_code(401);
+            echo json_encode(['error' => $validation['error']]);
+            exit;
+        }
+
+        $session = $validation['session'];
+
+        // Sequential chunk validation
+        if ($chunkIndex > $session['last_chunk'] + 5) {
+            $this->logPlaybackEvent(
+                $videoId,
+                $session['user_id'],
+                'SUSPICIOUS_JUMP',
+                ['from' => $session['last_chunk'], 'to' => $chunkIndex]
+            );
+        }
+
+        // Update last chunk
+        $_SESSION['playback_sessions'][$sessionToken]['last_chunk'] = max(
+            $session['last_chunk'],
+            $chunkIndex
+        );
+
+        // Map track to stream ID
+        $streamId = ($track === 'video') ? 0 : 1;
+
+        // Build path with quality folder
+        $chunkFile = sprintf(
+            '%s%s/%s/chunk-stream%d-%05d.enc',
+            ENCRYPTED_DIR,
+            $videoId,
+            $quality,
+            $streamId,
+            $chunkIndex + 1
+        );
+
+        // Fallback to root folder if quality folder doesn't exist
+        if (!file_exists($chunkFile)) {
+            $chunkFile = sprintf(
+                '%s%s/chunk-stream%d-%05d.enc',
+                ENCRYPTED_DIR,
+                $videoId,
+                $streamId,
+                $chunkIndex + 1
+            );
+        }
+
+        if (!file_exists($chunkFile)) {
+            http_response_code(404);
+            exit;
+        }
+
+        // Read encrypted data
+        $encryptedData = file_get_contents($chunkFile);
+
+        // Get video's master key
+        $encryption = new VideoEncryption();
+        $keyData = $encryption->getVideoKey($videoId);
+
+        if (!$keyData['success']) {
+            http_response_code(500);
+            exit;
+        }
+
+        // Decrypt with master key
+        $videoKey = base64_decode($keyData['key']);
+        $videoIV = base64_decode($keyData['iv']);
+
+        // Generate chunk-specific IV
+        $chunkIV = $this->generateChunkIV($videoIV, $chunkIndex);
+
+        // Decrypt chunk
+        $decryptedData = openssl_decrypt(
+            $encryptedData,
+            'AES-256-CTR',
+            $videoKey,
+            OPENSSL_RAW_DATA,
+            $chunkIV
+        );
+
+        if ($decryptedData === false) {
+            http_response_code(500);
+            exit;
+        }
+
+        // Generate ephemeral key for client
+        $ephemeralKeyData = $this->generateEphemeralKey($videoId, $chunkIndex, $sessionToken);
+
+        if (!$ephemeralKeyData['success']) {
+            http_response_code(403);
+            exit;
+        }
+
+        $ephemeralKey = base64_decode($ephemeralKeyData['key']);
+        $ephemeralIV = base64_decode($ephemeralKeyData['iv']);
+
+        // Re-encrypt with ephemeral key
+        $reencryptedData = openssl_encrypt(
+            $decryptedData,
+            'AES-256-CTR',
+            $ephemeralKey,
+            OPENSSL_RAW_DATA,
+            $ephemeralIV
+        );
+
+        // Add user watermark
+        $watermark = $this->createWatermark($session['user_id'], $chunkIndex);
+        $reencryptedData = $watermark . $reencryptedData;
+
+        // Log chunk access
+        $this->logPlaybackEvent(
+            $videoId,
+            $session['user_id'],
+            'CHUNK_SERVED',
+            ['track' => $track, 'index' => $chunkIndex, 'quality' => $quality]
+        );
+
+        // Send encrypted data
+        header('Content-Type: application/octet-stream');
+        header('Content-Length: ' . strlen($reencryptedData));
+        header('Cache-Control: no-store, no-cache, must-revalidate');
+        header('X-Content-Type-Options: nosniff');
+        header('X-Chunk-Index: ' . $chunkIndex);
+        header('X-Quality: ' . $quality);
+        header('X-Valid-Until: ' . $ephemeralKeyData['valid_until']);
+
+        echo $reencryptedData;
+        exit;
+    }
+
+
+
+    public function serveSecureChunkWithAudioTrack($videoId, $track, $chunkIndex, $sessionToken, $quality = '720p', $audioTrack = 0)
+    {
+        // Validate session
+        $validation = $this->validateSession($sessionToken);
+        if (!$validation['valid']) {
+            http_response_code(401);
+            echo json_encode(['error' => $validation['error']]);
+            exit;
+        }
+
+        $session = $validation['session'];
+
+        // Sequential chunk validation
+        if ($chunkIndex > $session['last_chunk'] + 5) {
+            $this->logPlaybackEvent(
+                $videoId,
+                $session['user_id'],
+                'SUSPICIOUS_JUMP',
+                ['from' => $session['last_chunk'], 'to' => $chunkIndex]
+            );
+        }
+
+        // Update last chunk
+        $_SESSION['playback_sessions'][$sessionToken]['last_chunk'] = max(
+            $session['last_chunk'],
+            $chunkIndex
+        );
+
+        // Determine stream ID based on track type and audio track selection
+        $streamId = 0;
+
+        if ($track === 'video') {
+            $streamId = 0; // Video is always stream 0
+        } else {
+            // Audio streams: stream1 = audio_track_0, stream2 = audio_track_1, etc.
+            $streamId = 1 + $audioTrack;
+        }
+
+        // Build path with quality folder and correct stream ID
+        $chunkFile = sprintf(
+            '%s%s/%s/chunk-stream%d-%05d.enc',
+            ENCRYPTED_DIR,
+            $videoId,
+            $quality,
+            $streamId,
+            $chunkIndex + 1
+        );
+
+        // Fallback to root folder if quality folder doesn't exist
+        if (!file_exists($chunkFile)) {
+            $chunkFile = sprintf(
+                '%s%s/chunk-stream%d-%05d.enc',
+                ENCRYPTED_DIR,
+                $videoId,
+                $streamId,
+                $chunkIndex + 1
+            );
+        }
+
+        if (!file_exists($chunkFile)) {
+            // Log missing chunk for debugging
+            $this->logPlaybackEvent(
+                $videoId,
+                $session['user_id'],
+                'CHUNK_NOT_FOUND',
+                [
+                    'track' => $track,
+                    'index' => $chunkIndex,
+                    'quality' => $quality,
+                    'audio_track' => $audioTrack,
+                    'stream_id' => $streamId,
+                    'attempted_path' => basename($chunkFile)
+                ]
+            );
+
+            http_response_code(404);
+            exit;
+        }
+
+        // Read encrypted data
+        $encryptedData = file_get_contents($chunkFile);
+
+        // Get video's master key
+        $encryption = new VideoEncryption();
+        $keyData = $encryption->getVideoKey($videoId);
+
+        if (!$keyData['success']) {
+            http_response_code(500);
+            exit;
+        }
+
+        // Decrypt with master key
+        $videoKey = base64_decode($keyData['key']);
+        $videoIV = base64_decode($keyData['iv']);
+
+        // Generate chunk-specific IV
+        $chunkIV = $this->generateChunkIV($videoIV, $chunkIndex);
+
+        // Decrypt chunk
+        $decryptedData = openssl_decrypt(
+            $encryptedData,
+            'AES-256-CTR',
+            $videoKey,
+            OPENSSL_RAW_DATA,
+            $chunkIV
+        );
+
+        if ($decryptedData === false) {
+            http_response_code(500);
+            exit;
+        }
+
+        // Generate ephemeral key for client
+        $ephemeralKeyData = $this->generateEphemeralKey($videoId, $chunkIndex, $sessionToken);
+
+        if (!$ephemeralKeyData['success']) {
+            http_response_code(403);
+            exit;
+        }
+
+        $ephemeralKey = base64_decode($ephemeralKeyData['key']);
+        $ephemeralIV = base64_decode($ephemeralKeyData['iv']);
+
+        // Re-encrypt with ephemeral key
+        $reencryptedData = openssl_encrypt(
+            $decryptedData,
+            'AES-256-CTR',
+            $ephemeralKey,
+            OPENSSL_RAW_DATA,
+            $ephemeralIV
+        );
+
+        // Add user watermark
+        $watermark = $this->createWatermark($session['user_id'], $chunkIndex);
+        $reencryptedData = $watermark . $reencryptedData;
+
+        // Log chunk access
+        $this->logPlaybackEvent(
+            $videoId,
+            $session['user_id'],
+            'CHUNK_SERVED',
+            [
+                'track' => $track,
+                'index' => $chunkIndex,
+                'quality' => $quality,
+                'audio_track' => $audioTrack,
+                'stream_id' => $streamId
+            ]
+        );
+
+        // Send encrypted data
+        header('Content-Type: application/octet-stream');
+        header('Content-Length: ' . strlen($reencryptedData));
+        header('Cache-Control: no-store, no-cache, must-revalidate');
+        header('X-Content-Type-Options: nosniff');
+        header('X-Chunk-Index: ' . $chunkIndex);
+        header('X-Quality: ' . $quality);
+        header('X-Audio-Track: ' . $audioTrack);
+        header('X-Stream-ID: ' . $streamId);
+        header('X-Valid-Until: ' . $ephemeralKeyData['valid_until']);
+
+        echo $reencryptedData;
+        exit;
+    }
+
     /**
      * Create invisible user watermark
      */

@@ -66,7 +66,8 @@ $chunkCount = $videoInfo['chunk_count'];
             background: var(--dark);
             color: var(--light);
             overflow: hidden;
-            height: calc(var(--vh, 1vh) * 100);/*100vh*/
+            height: calc(var(--vh, 1vh) * 100);
+            /*100vh*/
         }
 
         /* Player Container */
@@ -75,7 +76,8 @@ $chunkCount = $videoInfo['chunk_count'];
             top: 0;
             left: 0;
             width: 100%;
-            height: calc(var(--vh, 1vh) * 100);/*100% height to cover full viewport*/
+            height: calc(var(--vh, 1vh) * 100);
+            /*100% height to cover full viewport*/
             background: #000;
             z-index: 10000;
         }
@@ -581,6 +583,23 @@ $chunkCount = $videoInfo['chunk_count'];
             <span>Buffering...</span>
         </div>
 
+
+        <!--Quality Swithing-->
+        <div class="quality-switching" id="quality-switching">
+            <div class="buffer-spinner"></div>
+            <span>Switching quality...</span>
+        </div>
+
+        <div class="audio-switching" id="audio-switching">
+            <div class="audio-switching-icon"></div>
+            <div class="audio-switching-text">Switching audio track...</div>
+        </div>
+
+        <!-- Audio Changed Notification -->
+        <div class="audio-changed-notification" id="audio-changed-notification">
+            Audio track changed
+        </div>
+
         <!-- Video Element -->
         <video id="secure-video" playsinline></video><!--muted autoplay-->
 
@@ -594,14 +613,12 @@ $chunkCount = $videoInfo['chunk_count'];
                     r="46"
                     fill="none"
                     stroke="rgba(255,255,255,0.25)"
-                    stroke-width="4"
-                />
+                    stroke-width="4" />
 
                 <!-- play triangle -->
                 <polygon
                     points="42,30 72,50 42,70"
-                    fill="#ffffff"
-                />
+                    fill="#ffffff" />
             </svg>
         </div>
 
@@ -651,14 +668,53 @@ $chunkCount = $videoInfo['chunk_count'];
                     </div>
 
                     <div class="right-controls">
-                        <button class="control-btn" onclick="skipBackward()" title="Backward 10s (←)"><svg viewBox="0 0 24 24" class="icon"><polygon points="11,5 3,12 11,19"></polygon><polygon points="21,5 13,12 21,19"></polygon></svg></button>
-                        <button class="control-btn" onclick="skipForward()" title="Forward 10s (→)"><svg viewBox="0 0 24 24" class="icon"><polygon points="3,5 11,12 3,19"></polygon><polygon points="13,5 21,12 13,19"></polygon></svg></button>
+                        <button class="control-btn" onclick="skipBackward()" title="Backward 10s (←)"><svg viewBox="0 0 24 24" class="icon">
+                                <polygon points="11,5 3,12 11,19"></polygon>
+                                <polygon points="21,5 13,12 21,19"></polygon>
+                            </svg></button>
+                        <button class="control-btn" onclick="skipForward()" title="Forward 10s (→)"><svg viewBox="0 0 24 24" class="icon">
+                                <polygon points="3,5 11,12 3,19"></polygon>
+                                <polygon points="13,5 21,12 13,19"></polygon>
+                            </svg></button>
                         <button class="control-btn" onclick="changeSpeed(-0.25)" title="Slower">-</button>
                         <button class="control-btn" onclick="changeSpeed(0.25)" title="Faster">+</button>
                         <button class="control-btn" id="pip-btn" onclick="togglePiP()"
-                            title="Picture in Picture"><svg viewBox="0 0 24 24" class="icon"><rect x="3" y="5" width="18" height="14" rx="2"></rect><rect x="12" y="10" width="7" height="6" rx="1" fill="#000"></rect></svg></button>
+                            title="Picture in Picture"><svg viewBox="0 0 24 24" class="icon">
+                                <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                                <rect x="12" y="10" width="7" height="6" rx="1" fill="#000"></rect>
+                            </svg></button>
                         <button class="control-btn" id="fullscreen-btn" onclick="toggleFullscreen()"
                             title="Fullscreen (F)">⛶</button>
+                        <!-- Quality Selector -->
+                        <div class="quality-selector-container">
+                            <button class="control-btn" id="quality-btn" onclick="toggleQualityMenu()" title="Quality">
+                                <span id="current-quality-text">720p</span>
+                            </button>
+                            <div class="quality-menu" id="quality-menu">
+                                <!-- Will be populated dynamically -->
+                            </div>
+                        </div>
+                        <!-- Audio Track Selector -->
+                        <div class="audio-selector-container" id="audio-selector-container" style="display: none;">
+                            <button class="control-btn" id="audio-btn" onclick="toggleAudioMenu()" title="Audio Track">
+                                🎵
+                            </button>
+                            <div class="audio-menu" id="audio-menu">
+                                <!-- Will be populated dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Subtitle Selector -->
+                        <div class="subtitle-selector-container" id="subtitle-selector-container" style="display: none;">
+                            <button class="control-btn" id="subtitle-btn" onclick="toggleSubtitleMenu()" title="Subtitles">
+                                CC
+                            </button>
+                            <div class="subtitle-menu" id="subtitle-menu">
+                                <div class="menu-item" onclick="disableSubtitles()">Off</div>
+                                <!-- Will be populated dynamically -->
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </div>
@@ -724,6 +780,10 @@ $chunkCount = $videoInfo['chunk_count'];
                 e.preventDefault();
                 return false;
             }
+            if (e.key.toLowerCase() === 'a' && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                cycleAudioTrack();
+            }
         });
 
         // ============================================
@@ -774,14 +834,36 @@ $chunkCount = $videoInfo['chunk_count'];
                 showLoading('Building secure stream...', 50);
                 await videoDecryptor.prepareMediaSource(videoPlayer);
 
-                showLoading('Initializing video player...', 80);
+                showLoading('Loading tracks and qualities...', 70);
+
+                // Populate UI controls
+                populateQualityMenu(
+                    videoDecryptor.availableQualities,
+                    videoDecryptor.currentQuality
+                );
+
+                if (videoDecryptor.audioTracks.length > 1) {
+                    populateAudioMenu(videoDecryptor.audioTracks);
+                }
+
+                if (videoDecryptor.subtitleTracks.length > 0) {
+                    populateSubtitleMenu(videoDecryptor.subtitleTracks);
+                }
+
+                // Update quality display
+                document.getElementById('current-quality-text').textContent =
+                    videoDecryptor.currentQuality;
+
+                showLoading('Finalizing...', 90);
 
                 // Wait for metadata
                 await new Promise((resolve) => {
-                    videoPlayer.addEventListener('loadedmetadata', resolve, { once: true });
+                    videoPlayer.addEventListener('loadedmetadata', resolve, {
+                        once: true
+                    });
                 });
 
-                showLoading('Finalizing...', 100);
+                showLoading('Ready!', 100);
 
                 // Small delay for smooth transition
                 await new Promise(resolve => setTimeout(resolve, 500));
@@ -798,7 +880,10 @@ $chunkCount = $videoInfo['chunk_count'];
                 // Show security warning briefly
                 showSecurityWarning();
 
-                console.log('✅ Player initialized successfully');
+                console.log('✅ Enhanced player initialized successfully');
+                console.log(`📊 Quality: ${videoDecryptor.currentQuality}, ` +
+                    `Audio: ${videoDecryptor.audioTracks.length}, ` +
+                    `Subtitles: ${videoDecryptor.subtitleTracks.length}`);
 
             } catch (error) {
                 console.error('❌ Player initialization failed:', error);
@@ -891,7 +976,7 @@ $chunkCount = $videoInfo['chunk_count'];
 
             // Error handling
             videoPlayer.addEventListener('error', (e) => {
-                if(isExitingPlayer){
+                if (isExitingPlayer) {
                     return;
                 }
                 console.error('❌ Video error:', e);
@@ -1059,9 +1144,9 @@ $chunkCount = $videoInfo['chunk_count'];
         async function seekVideo(event) {
             const container = event.currentTarget;
             const rect = container.getBoundingClientRect();
-            const clientX = event.touches
-                ? event.touches[0].clientX
-                : event.clientX;
+            const clientX = event.touches ?
+                event.touches[0].clientX :
+                event.clientX;
 
             const percent = (clientX - rect.left) / rect.width;
             const time = videoPlayer.duration * percent;
@@ -1119,7 +1204,7 @@ $chunkCount = $videoInfo['chunk_count'];
         async function lockOrientationLandscape() {
             try {
                 if (screen.orientation && screen.orientation.lock) {
-                await screen.orientation.lock('landscape');
+                    await screen.orientation.lock('landscape');
                 }
             } catch (e) {}
         }
@@ -1232,6 +1317,20 @@ $chunkCount = $videoInfo['chunk_count'];
             }, 100);
         }
 
+        function cycleAudioTrack() {
+            if (!window.videoDecryptor || window.videoDecryptor.audioTracks.length <= 1) {
+                console.log('Only one audio track available');
+                return;
+            }
+
+            const currentTrack = window.videoDecryptor.currentAudioTrack;
+            const nextTrack = (currentTrack + 1) % window.videoDecryptor.audioTracks.length;
+
+            console.log(`🔄 Cycling audio: ${currentTrack} → ${nextTrack}`);
+
+            switchAudioTrack(nextTrack);
+        }
+
         function resetUITimeout() {
             const overlay = document.getElementById('player-overlay');
             overlay.classList.add('force-show');
@@ -1266,17 +1365,37 @@ $chunkCount = $videoInfo['chunk_count'];
             screen.classList.add('show');
         }
 
+        function displayAudioTrackInfo() {
+            if (!window.videoDecryptor || window.videoDecryptor.audioTracks.length === 0) {
+                return;
+            }
+
+            const currentTrack = window.videoDecryptor.audioTracks[window.videoDecryptor.currentAudioTrack];
+
+            if (currentTrack) {
+                console.log('🎵 Current audio track:', currentTrack.title || 'Unknown');
+                console.log('   Language:', currentTrack.language || 'Unknown');
+                console.log('   Codec:', currentTrack.codec || 'Unknown');
+            }
+        }
+
         function hideLoading() {
             const screen = document.getElementById('loading-screen');
             screen.classList.remove('show');
         }
 
         function showBuffering() {
-            document.getElementById('buffer-indicator').classList.add('show');
+            const indicator = document.getElementById('buffer-indicator');
+            if (indicator) {
+                indicator.classList.add('show');
+            }
         }
 
         function hideBuffering() {
-            document.getElementById('buffer-indicator').classList.remove('show');
+            const indicator = document.getElementById('buffer-indicator');
+            if (indicator) {
+                indicator.classList.remove('show');
+            }
         }
 
         function showSecurityWarning() {
@@ -1291,6 +1410,24 @@ $chunkCount = $videoInfo['chunk_count'];
         function toggleShortcutsHint() {
             const hint = document.getElementById('shortcuts-hint');
             hint.classList.toggle('show');
+        }
+
+        function updateKeyboardShortcutsHint() {
+            const shortcutsHint = document.getElementById('shortcuts-hint');
+
+            if (window.videoDecryptor && window.videoDecryptor.audioTracks.length > 1) {
+                // Add audio track shortcut to the hints
+                const audioShortcut = document.createElement('div');
+                audioShortcut.className = 'shortcut-item';
+                audioShortcut.innerHTML = `
+            <span>Cycle Audio Track</span>
+            <span class="shortcut-key">A</span>
+        `;
+
+                // Insert before "Close This" shortcut
+                const closeShortcut = shortcutsHint.querySelector('.shortcut-item:last-child');
+                shortcutsHint.insertBefore(audioShortcut, closeShortcut);
+            }
         }
 
         // ============================================
@@ -1352,7 +1489,7 @@ $chunkCount = $videoInfo['chunk_count'];
 
         async function attemptRecovery() {
             console.log('🔧 Attempting recovery...');
-            if(isExitingPlayer){
+            if (isExitingPlayer) {
                 return;
             }
 
@@ -1401,6 +1538,297 @@ $chunkCount = $videoInfo['chunk_count'];
             }
         }
 
+
+        // Quality Menu Functions
+        function toggleQualityMenu() {
+            const menu = document.getElementById('quality-menu');
+            menu.classList.toggle('show');
+
+            // Close other menus
+            document.getElementById('audio-menu').classList.remove('show');
+            document.getElementById('subtitle-menu').classList.remove('show');
+        }
+
+        function toggleAudioMenu() {
+            const menu = document.getElementById('audio-menu');
+            menu.classList.toggle('show');
+
+            document.getElementById('quality-menu').classList.remove('show');
+            document.getElementById('subtitle-menu').classList.remove('show');
+        }
+
+        function toggleSubtitleMenu() {
+            const menu = document.getElementById('subtitle-menu');
+            menu.classList.toggle('show');
+
+            document.getElementById('quality-menu').classList.remove('show');
+            document.getElementById('audio-menu').classList.remove('show');
+        }
+        async function switchQuality(quality) {
+            if (!window.videoDecryptor) return;
+
+            document.getElementById('quality-menu').classList.remove('show');
+            document.getElementById('quality-switching').classList.add('show');
+
+            const success = await window.videoDecryptor.switchQuality(quality);
+
+            if (success) {
+                document.getElementById('current-quality-text').textContent = quality;
+                updateQualityMenuActive(quality);
+            }
+
+            document.getElementById('quality-switching').classList.remove('show');
+        }
+        async function switchAudioTrack(index) {
+            if (!window.videoDecryptor) {
+                console.error('Video decryptor not initialized');
+                return;
+            }
+
+            // Validate index
+            if (index < 0 || index >= window.videoDecryptor.audioTracks.length) {
+                console.error('Invalid audio track index:', index);
+                return;
+            }
+
+            // Check if already on this track
+            if (window.videoDecryptor.currentAudioTrack === index) {
+                console.log('Already on this audio track');
+                document.getElementById('audio-menu').classList.remove('show');
+                return;
+            }
+
+            // Close menu
+            document.getElementById('audio-menu').classList.remove('show');
+
+            // Show switching indicator
+            const switchingIndicator = document.getElementById('audio-switching');
+            if (switchingIndicator) {
+                switchingIndicator.classList.add('show');
+            }
+
+            // Disable audio menu during switch
+            const audioBtn = document.getElementById('audio-btn');
+            if (audioBtn) {
+                audioBtn.disabled = true;
+                audioBtn.style.opacity = '0.5';
+            }
+
+            try {
+                // Use retry logic
+                const success = await window.videoDecryptor.switchAudioTrackWithRetry(index, 2);
+
+                if (success) {
+                    // Update UI
+                    updateAudioMenuActive(index);
+
+                    // Show success notification
+                    const trackName = window.videoDecryptor.audioTracks[index].title ||
+                        `Audio Track ${index + 1}`;
+                    const trackLang = window.videoDecryptor.audioTracks[index].language || 'unknown';
+
+                    showAudioChangeNotification(trackName, trackLang, true);
+
+                    console.log(`✅ Audio track switched successfully to: ${trackName}`);
+
+                } else {
+                    // Show error notification
+                    showAudioChangeNotification('Failed to switch audio track', '', false);
+                    console.error('❌ Audio track switch failed');
+                }
+
+            } catch (error) {
+                console.error('❌ Audio track switch error:', error);
+                showAudioChangeNotification('Audio switch error', '', false);
+
+            } finally {
+                // Hide switching indicator
+                if (switchingIndicator) {
+                    switchingIndicator.classList.remove('show');
+                }
+
+                // Re-enable audio menu
+                if (audioBtn) {
+                    audioBtn.disabled = false;
+                    audioBtn.style.opacity = '1';
+                }
+            }
+        }
+
+
+        function showAudioChangeNotification(trackName, language, success) {
+            const notification = document.getElementById('audio-changed-notification');
+
+            if (!notification) return;
+
+            // Set message
+            if (success) {
+                notification.style.background = 'rgba(16, 185, 129, 0.95)';
+                notification.innerHTML = `
+            <span style="margin-right: 8px;">🎵</span>
+            ${trackName}
+            ${language ? `<span style="opacity: 0.8; font-size: 12px; margin-left: 8px;">(${language})</span>` : ''}
+        `;
+            } else {
+                notification.style.background = 'rgba(239, 68, 68, 0.95)';
+                notification.innerHTML = `
+            <span style="margin-right: 8px;">⚠️</span>
+            ${trackName}
+        `;
+            }
+
+            // Show notification
+            notification.classList.add('show');
+
+            // Auto-hide after 2.5 seconds
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 2500);
+        }
+        async function selectSubtitle(index) {
+            if (!window.videoDecryptor) return;
+
+            document.getElementById('subtitle-menu').classList.remove('show');
+            await window.videoDecryptor.loadSubtitle(index);
+            updateSubtitleMenuActive(index);
+        }
+
+        function disableSubtitles() {
+            if (!window.videoDecryptor) return;
+
+            document.getElementById('subtitle-menu').classList.remove('show');
+            window.videoDecryptor.disableSubtitles();
+            updateSubtitleMenuActive(-1);
+        }
+
+        function updateQualityMenuActive(activeQuality) {
+            document.querySelectorAll('#quality-menu .menu-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.quality === activeQuality) {
+                    item.classList.add('active');
+                }
+            });
+        }
+
+        function updateAudioMenuActive(activeIndex) {
+            document.querySelectorAll('#audio-menu .menu-item').forEach((item, idx) => {
+                item.classList.remove('active');
+                if (parseInt(item.dataset.index) === activeIndex) {
+                    item.classList.add('active');
+                }
+            });
+        }
+
+        function initializeAudioControls() {
+            // Add keyboard shortcut
+            document.addEventListener('keydown', (e) => {
+                // Ignore if typing in input
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                    return;
+                }
+
+                // 'A' key to cycle audio tracks
+                if (e.key.toLowerCase() === 'a' && !e.ctrlKey && !e.metaKey) {
+                    e.preventDefault();
+                    cycleAudioTrack();
+                }
+            });
+
+            console.log('🎵 Audio controls initialized');
+        }
+
+        function updateSubtitleMenuActive(activeIndex) {
+            document.querySelectorAll('#subtitle-menu .menu-item').forEach(item => {
+                item.classList.remove('active');
+                if (parseInt(item.dataset.index) === activeIndex) {
+                    item.classList.add('active');
+                }
+            });
+        }
+
+        function populateQualityMenu(qualities, currentQuality) {
+            const menu = document.getElementById('quality-menu');
+            menu.innerHTML = '';
+
+            qualities.forEach(quality => {
+                const item = document.createElement('div');
+                item.className = 'menu-item';
+                if (quality === currentQuality) {
+                    item.classList.add('active');
+                }
+                item.dataset.quality = quality;
+                item.textContent = quality;
+                item.onclick = () => switchQuality(quality);
+                menu.appendChild(item);
+            });
+        }
+
+        function populateAudioMenu(tracks) {
+            if (!tracks || tracks.length === 0) return;
+
+            const menu = document.getElementById('audio-menu');
+            const container = document.getElementById('audio-selector-container');
+
+            // Show container
+            container.style.display = 'block';
+
+            // Clear menu
+            menu.innerHTML = '';
+
+            // Add each track
+            tracks.forEach((track, index) => {
+                const item = document.createElement('div');
+                item.className = 'menu-item';
+
+                // Mark first track as active
+                if (index === 0) {
+                    item.classList.add('active');
+                }
+
+                item.dataset.index = index;
+
+                // Build track label
+                const title = track.title || `Track ${index + 1}`;
+                const lang = track.language && track.language !== 'und' ?
+                    ` (${track.language})` :
+                    '';
+
+                item.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <span>${title}${lang}</span>
+                ${index === 0 ? '<span style="opacity: 0.6; font-size: 11px;">DEFAULT</span>' : ''}
+            </div>
+        `;
+
+                item.onclick = () => switchAudioTrack(index);
+
+                menu.appendChild(item);
+            });
+
+            console.log(`📋 Populated audio menu with ${tracks.length} tracks`);
+        }
+
+        function populateSubtitleMenu(tracks) {
+            if (!tracks || tracks.length === 0) return;
+
+            const menu = document.getElementById('subtitle-menu');
+            const container = document.getElementById('subtitle-selector-container');
+
+            container.style.display = 'block';
+
+            // Keep "Off" option
+            menu.innerHTML = '<div class="menu-item active" onclick="disableSubtitles()">Off</div>';
+
+            tracks.forEach((track, index) => {
+                const item = document.createElement('div');
+                item.className = 'menu-item';
+                item.dataset.index = index;
+                item.textContent = track.title || `${track.language} Subtitle`;
+                item.onclick = () => selectSubtitle(index);
+                menu.appendChild(item);
+            });
+        }
+
         // ============================================
         // EVENT LISTENERS - DOCUMENT
         // ============================================
@@ -1417,11 +1845,60 @@ $chunkCount = $videoInfo['chunk_count'];
                 e.returnValue = 'You are currently watching a video. Are you sure you want to leave?';
             }
         });
+        window.addEventListener('audioTrackChanged', (event) => {
+            const {
+                from,
+                to,
+                track
+            } = event.detail;
+
+            console.log(`📢 Audio track changed: ${from} → ${to}`);
+            console.log(`   Track: ${track.title} (${track.language})`);
+
+            // Update any additional UI elements if needed
+            const audioBtn = document.getElementById('audio-btn');
+            if (audioBtn && track.language && track.language !== 'und') {
+                audioBtn.title = `Audio: ${track.title} (${track.language})`;
+            }
+        });
 
         // Visibility change - pause when tab hidden
         document.addEventListener('visibilitychange', () => {
             if (document.hidden && playerState.isPlaying) {
                 videoPlayer.pause();
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeAudioControls();
+
+            // Display audio info after player loads
+            setTimeout(() => {
+                displayAudioTrackInfo();
+            }, 2000);
+        });
+
+        window.debugAudioTracks = function() {
+            if (!window.videoDecryptor) {
+                console.log('❌ Video decryptor not initialized');
+                return;
+            }
+
+            console.log('=== AUDIO TRACKS DEBUG ===');
+            console.log('Total tracks:', window.videoDecryptor.audioTracks.length);
+            console.log('Current track:', window.videoDecryptor.currentAudioTrack);
+            console.table(window.videoDecryptor.audioTracks);
+            console.log('========================');
+        };
+
+        // Close menus when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.quality-selector-container') &&
+                !e.target.closest('.audio-selector-container') &&
+                !e.target.closest('.subtitle-selector-container')) {
+                document.getElementById('quality-menu').classList.remove('show');
+                document.getElementById('audio-menu').classList.remove('show');
+                document.getElementById('subtitle-menu').classList.remove('show');
             }
         });
 

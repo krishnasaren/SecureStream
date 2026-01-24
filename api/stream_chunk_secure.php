@@ -18,11 +18,12 @@ if (!$auth->getCurrentUser()) {
     http_response_code(401);
     exit;
 }*/
-
 $videoId = $_GET['video_id'] ?? '';
 $track = $_GET['track'] ?? '';
 $index = isset($_GET['index']) ? intval($_GET['index']) : -1;
 $sessionToken = $_GET['session_token'] ?? '';
+$quality = $_GET['quality'] ?? '360p';
+$audioTrack = isset($_GET['audio_track']) ? intval($_GET['audio_track']) : 0;
 
 // Validation
 if (
@@ -41,9 +42,14 @@ if (str_contains($videoId, '..') || str_contains($videoId, '/')) {
     exit;
 }
 
-// Serve secure chunk with double encryption
+// Serve secure chunk with quality and audio track selection
 $manager = new SecurePlaybackManager();
-$manager->serveSecureChunk($videoId, $track, $index, $sessionToken);
-
-// Method exits internally
+$manager->serveSecureChunkWithAudioTrack(
+    $videoId,
+    $track,
+    $index,
+    $sessionToken,
+    $quality,
+    $audioTrack
+);
 ?>
