@@ -582,7 +582,7 @@ $chunkCount = $videoInfo['chunk_count'];
         </div>
 
         <!-- Video Element -->
-        <video id="secure-video" playsinline muted autoplay></video>
+        <video id="secure-video" playsinline></video><!--muted autoplay-->
 
         <!-- Center Play Button -->
         <div class="center-play-btn" id="center-play-btn" onclick="togglePlay()">
@@ -639,7 +639,7 @@ $chunkCount = $videoInfo['chunk_count'];
                 <div class="control-buttons">
                     <div class="left-controls">
                         <button class="control-btn" id="play-pause-btn" onclick="togglePlay()"
-                            title="Play/Pause (Space)">▶</button>
+                            title="Play/Pause (Space)">▶</button><!--❚❚-->
                         <div class="volume-container">
                             <button class="control-btn" id="mute-btn" onclick="toggleMute()"
                                 title="Mute (M)">🔊</button>
@@ -743,6 +743,8 @@ $chunkCount = $videoInfo['chunk_count'];
             isSeeking: false,
             hasEnded: false
         };
+
+        let isExitingPlayer = false;
 
         const videoId = '<?php echo $videoId; ?>';
         const totalChunks = <?php echo $chunkCount; ?>;
@@ -889,6 +891,9 @@ $chunkCount = $videoInfo['chunk_count'];
 
             // Error handling
             videoPlayer.addEventListener('error', (e) => {
+                if(isExitingPlayer){
+                    return;
+                }
                 console.error('❌ Video error:', e);
                 showError('Video playback error. Attempting recovery...');
                 attemptRecovery();
@@ -1347,6 +1352,9 @@ $chunkCount = $videoInfo['chunk_count'];
 
         async function attemptRecovery() {
             console.log('🔧 Attempting recovery...');
+            if(isExitingPlayer){
+                return;
+            }
 
             try {
                 const currentTime = videoPlayer.currentTime;
@@ -1374,6 +1382,7 @@ $chunkCount = $videoInfo['chunk_count'];
         function exitPlayer() {
             if (confirm('Exit secure player? Your viewing position will not be saved.')) {
                 unlockOrientation();
+                isExitingPlayer = true;
                 // Cleanup
                 if (progressUpdateInterval) {
                     clearInterval(progressUpdateInterval);

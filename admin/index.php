@@ -96,6 +96,7 @@ $recentVideos = array_slice($videos, 0, 5);
         .nav-links {
             display: flex;
             gap: 20px;
+            align-items: center;
         }
 
         .nav-links a {
@@ -104,6 +105,10 @@ $recentVideos = array_slice($videos, 0, 5);
             padding: 8px 16px;
             border-radius: 6px;
             transition: all 0.3s;
+            display: flex;              /* 🔑 important */
+            align-items: center;        /* vertical centering */
+            justify-content: center;
+            
         }
 
         .nav-links a:hover,
@@ -285,7 +290,20 @@ $recentVideos = array_slice($videos, 0, 5);
         .table td {
             padding: 15px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            
+            
         }
+        .action-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .action-group .btn {
+            white-space: nowrap;
+        }
+
 
         .table tr:hover {
             background: rgba(255, 255, 255, 0.05);
@@ -497,10 +515,11 @@ $recentVideos = array_slice($videos, 0, 5);
                                     <?php echo date('M d, Y', strtotime($video['created_at'])); ?>
                                 </td>
                                 <td>
-                                    <a href="../pages/player.php?id=<?php echo $video['id']; ?>"
-                                        class="btn btn-primary">Play</a>
-                                    <button onclick="deleteVideo('<?php echo $video['id']; ?>')"
-                                        class="btn btn-danger">Delete</button>
+                                    <div class="action-group">
+                                        <a href="../pages/player.php?id=<?php echo $video['id']; ?>" class="btn btn-primary">Play</a>
+                                        <button onclick="deleteVideo('<?php echo $video['id']; ?>')" class="btn btn-danger">Delete</button>
+                                    </div>
+                                    
                                 </td>
                             </tr>
                         <?php endforeach; ?>
