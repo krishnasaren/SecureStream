@@ -10,7 +10,15 @@ if (!$auth->getCurrentUser()) {
 }
 
 $videoId = $_GET['id'] ?? '';
+
+if (!$videoId) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'Video ID required']);
+    exit;
+}
 $info = getVideoInfo($videoId);
+
+
 
 if (!$info) {
     http_response_code(404);

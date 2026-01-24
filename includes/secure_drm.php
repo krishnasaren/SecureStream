@@ -62,6 +62,34 @@ class SecurePlaybackManager
         ];
     }
 
+
+    static function invalidatePlaybackSessions(string $videoId): void
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+
+        if (empty($_SESSION['playback_sessions'])) {
+            return;
+        }
+
+        foreach ($_SESSION['playback_sessions'] as $token => $session) {
+            if (
+                isset($session['video_id']) &&
+                $session['video_id'] === $videoId
+            ) {
+                unset($_SESSION['playback_sessions'][$token]);
+            }
+        }
+
+        // Optional: clean empty container
+        if (empty($_SESSION['playback_sessions'])) {
+            unset($_SESSION['playback_sessions']);
+        }
+
+        error_log("Playback sessions invalidated for video: {$videoId}");
+    }
+
     /**
      * Validate playback session
      */

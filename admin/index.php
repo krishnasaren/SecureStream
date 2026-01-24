@@ -105,10 +105,12 @@ $recentVideos = array_slice($videos, 0, 5);
             padding: 8px 16px;
             border-radius: 6px;
             transition: all 0.3s;
-            display: flex;              /* 🔑 important */
-            align-items: center;        /* vertical centering */
+            display: flex;
+            /* 🔑 important */
+            align-items: center;
+            /* vertical centering */
             justify-content: center;
-            
+
         }
 
         .nav-links a:hover,
@@ -290,9 +292,10 @@ $recentVideos = array_slice($videos, 0, 5);
         .table td {
             padding: 15px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            
-            
+
+
         }
+
         .action-group {
             display: flex;
             gap: 10px;
@@ -519,7 +522,7 @@ $recentVideos = array_slice($videos, 0, 5);
                                         <a href="../pages/player.php?id=<?php echo $video['id']; ?>" class="btn btn-primary">Play</a>
                                         <button onclick="deleteVideo('<?php echo $video['id']; ?>')" class="btn btn-danger">Delete</button>
                                     </div>
-                                    
+
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -544,7 +547,13 @@ $recentVideos = array_slice($videos, 0, 5);
 
         function deleteVideo(videoId) {
             if (confirm('Are you sure you want to delete this video?\n\nThis will permanently delete all encrypted chunks and keys.')) {
-                fetch('../api/delete_video.php?id=' + videoId)
+                fetch('../api/delete_video.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: 'video_id=' + encodeURIComponent(videoId)
+                    })
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
