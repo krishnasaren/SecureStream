@@ -33,7 +33,7 @@ define('KEYS_DIR', VIDEOS_DIR . 'keys/');
 define('THUMBNAILS_DIR', VIDEOS_DIR . 'thumbnails/');
 define('ORIGINAL_DIR', VIDEOS_DIR . 'original/');
 define('USERS_FILE', BASE_PATH . '/users/users.json');
-define('MASTER_KEY_FILE', BASE_PATH . '/master.key');
+define('MASTER_KEY_FILE', BASE_PATH . '/server_master.key');
 
 //echo(dirname(__DIR__));
 
