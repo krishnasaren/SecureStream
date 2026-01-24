@@ -1,0 +1,23 @@
+# Video files
+*.mp4
+*.mkv
+*.webm
+
+# Streaming chunks
+*.m4s
+*.ts
+
+# Encrypted content
+*.enc
+*.bin
+
+# Video storage directories
+/videos/encrypted/
+/videos/original/
+/encrypted/
+/chunks/
+/uploads/
+
+# Temp & cache
+/tmp/
+/cache/

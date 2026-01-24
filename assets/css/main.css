@@ -15,10 +15,69 @@
         grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     }
     
-    .player-overlay {
-        opacity: 1 !important; /* Always show on mobile */
+}
+
+.player-container {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    touch-action: manipulation;
+}
+
+
+
+
+
+@media (max-width: 768px) {
+
+    .top-bar {
+        padding: 10px 15px;
+    }
+
+    .bottom-controls {
+        padding: 12px 15px;
+    }
+
+    .control-buttons {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .left-controls,
+    .right-controls {
+        justify-content: space-between;
+        width: 100%;
+        gap: 12px;
+    }
+
+    .control-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 20px;
+    }
+
+    .progress-container {
+        margin-bottom: 12px;
+    }
+
+    .center-play-btn {
+        width: 64px;
+        height: 64px;
+        font-size: 26px;
+    }
+
+    .video-title {
+        max-width: 160px;
+        font-size: 14px;
     }
 }
+
+@supports (aspect-ratio: 16 / 9) {
+    #secure-video {
+        aspect-ratio: 16 / 9;
+    }
+}
+
+
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
@@ -96,3 +155,122 @@
 .fade-in {
     animation: fadeIn 0.3s ease-out;
 }
+
+
+
+/* ===========================
+   MOBILE TOP BAR FIX
+   =========================== */
+@media (max-width: 768px) {
+
+    .top-bar {
+        padding: 8px 12px;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    /* Back button - compact */
+    .back-btn {
+        padding: 6px 10px;
+        font-size: 12px;
+        border-radius: 6px;
+        gap: 6px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .back-btn::before {
+        font-size: 14px;
+    }
+
+    /* Hide text, keep icon feel */
+    .back-btn span,
+    .back-btn {
+        white-space: nowrap;
+    }
+
+    /* Security badge - smaller pill */
+    .security-badge {
+        padding: 4px 8px;
+        font-size: 10px;
+        border-radius: 999px;
+        gap: 4px;
+    }
+
+    .security-badge span:first-child {
+        font-size: 12px;
+    }
+
+    /* Video title */
+    .video-title {
+        max-width: 140px;
+        font-size: 13px;
+    }
+
+    /* Prevent wrapping */
+    .security-info {
+        gap: 8px;
+        
+        flex-wrap: wrap;
+        align-items: center;
+    }
+    
+}
+
+/* ===============================
+   SVG ICON SYSTEM (PLAYER)
+   =============================== */
+
+.icon {
+    width: 22px;
+    height: 22px;
+    fill: #ffffff;
+    stroke: #ffffff;
+    stroke-width: 0;
+    pointer-events: none;
+}
+
+.control-btn:hover .icon {
+    fill: var(--primary);
+}
+
+@media (max-width: 768px) {
+    .icon {
+        width: 20px;
+        height: 20px;
+    }
+}
+
+.control-btn {
+    width: 40px;
+    height: 40px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+    border-radius: 50%;
+    border: none;
+
+    background: transparent;
+    cursor: pointer;
+    line-height: 1;
+
+    -webkit-tap-highlight-color: transparent;
+}
+.control-btn svg {
+    display: block;
+    width: 22px;
+    height: 22px;
+    line-height: 1;
+}
+/* SVG sizing in center*/
+.center-icon {
+    width: 64px;
+    height: 64px;
+}
+
+
+

@@ -35,6 +35,7 @@ $chunkCount = $videoInfo['chunk_count'];
     <title>
         <?php echo htmlspecialchars($title); ?> | SecureStream Player
     </title>
+    <link rel="stylesheet" href="../assets/css/main.css">
     <style>
         :root {
             --primary: #667eea;
@@ -65,7 +66,7 @@ $chunkCount = $videoInfo['chunk_count'];
             background: var(--dark);
             color: var(--light);
             overflow: hidden;
-            height: 100vh;
+            height: calc(var(--vh, 1vh) * 100);/*100vh*/
         }
 
         /* Player Container */
@@ -74,7 +75,7 @@ $chunkCount = $videoInfo['chunk_count'];
             top: 0;
             left: 0;
             width: 100%;
-            height: 100%;
+            height: calc(var(--vh, 1vh) * 100);/*100% height to cover full viewport*/
             background: #000;
             z-index: 10000;
         }
@@ -584,7 +585,25 @@ $chunkCount = $videoInfo['chunk_count'];
         <video id="secure-video" playsinline muted autoplay></video>
 
         <!-- Center Play Button -->
-        <div class="center-play-btn" id="center-play-btn" onclick="togglePlay()">▶️</div>
+        <div class="center-play-btn" id="center-play-btn" onclick="togglePlay()">
+            <svg class="center-icon" viewBox="0 0 100 100" aria-hidden="true">
+                <!-- subtle outer ring -->
+                <circle
+                    cx="50"
+                    cy="50"
+                    r="46"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.25)"
+                    stroke-width="4"
+                />
+
+                <!-- play triangle -->
+                <polygon
+                    points="42,30 72,50 42,70"
+                    fill="#ffffff"
+                />
+            </svg>
+        </div>
 
         <!-- Overlay Controls -->
         <div class="player-overlay" id="player-overlay">
@@ -620,7 +639,7 @@ $chunkCount = $videoInfo['chunk_count'];
                 <div class="control-buttons">
                     <div class="left-controls">
                         <button class="control-btn" id="play-pause-btn" onclick="togglePlay()"
-                            title="Play/Pause (Space)">▶️</button>
+                            title="Play/Pause (Space)">▶</button>
                         <div class="volume-container">
                             <button class="control-btn" id="mute-btn" onclick="toggleMute()"
                                 title="Mute (M)">🔊</button>
@@ -632,12 +651,12 @@ $chunkCount = $videoInfo['chunk_count'];
                     </div>
 
                     <div class="right-controls">
-                        <button class="control-btn" onclick="skipBackward()" title="Backward 10s (←)">⏪</button>
-                        <button class="control-btn" onclick="skipForward()" title="Forward 10s (→)">⏩</button>
+                        <button class="control-btn" onclick="skipBackward()" title="Backward 10s (←)"><svg viewBox="0 0 24 24" class="icon"><polygon points="11,5 3,12 11,19"></polygon><polygon points="21,5 13,12 21,19"></polygon></svg></button>
+                        <button class="control-btn" onclick="skipForward()" title="Forward 10s (→)"><svg viewBox="0 0 24 24" class="icon"><polygon points="3,5 11,12 3,19"></polygon><polygon points="13,5 21,12 13,19"></polygon></svg></button>
                         <button class="control-btn" onclick="changeSpeed(-0.25)" title="Slower">-</button>
                         <button class="control-btn" onclick="changeSpeed(0.25)" title="Faster">+</button>
                         <button class="control-btn" id="pip-btn" onclick="togglePiP()"
-                            title="Picture in Picture">📺</button>
+                            title="Picture in Picture"><svg viewBox="0 0 24 24" class="icon"><rect x="3" y="5" width="18" height="14" rx="2"></rect><rect x="12" y="10" width="7" height="6" rx="1" fill="#000"></rect></svg></button>
                         <button class="control-btn" id="fullscreen-btn" onclick="toggleFullscreen()"
                             title="Fullscreen (F)">⛶</button>
                     </div>
@@ -1035,7 +1054,11 @@ $chunkCount = $videoInfo['chunk_count'];
         async function seekVideo(event) {
             const container = event.currentTarget;
             const rect = container.getBoundingClientRect();
-            const percent = (event.clientX - rect.left) / rect.width;
+            const clientX = event.touches
+                ? event.touches[0].clientX
+                : event.clientX;
+
+            const percent = (clientX - rect.left) / rect.width;
             const time = videoPlayer.duration * percent;
 
             await seekToTime(time);
@@ -1088,21 +1111,50 @@ $chunkCount = $videoInfo['chunk_count'];
                 console.log('PiP not supported or failed:', error);
             }
         }
+        async function lockOrientationLandscape() {
+            try {
+                if (screen.orientation && screen.orientation.lock) {
+                await screen.orientation.lock('landscape');
+                }
+            } catch (e) {}
+        }
+
+        async function unlockOrientation() {
+            try {
+                if (screen.orientation && screen.orientation.unlock) {
+                    screen.orientation.unlock();
+                }
+            } catch (e) {}
+        }
+
 
         function toggleFullscreen() {
             if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen();
+                document.documentElement.requestFullscreen().then(lockOrientationLandscape);
             } else {
-                document.exitFullscreen();
+                document.exitFullscreen().then(unlockOrientation);
             }
         }
+
+        function setMobileViewportHeight() {
+            const vh = window.innerHeight * 0.01;
+            document.documentElement.style.setProperty('--vh', `${vh}px`);
+        }
+
+        setMobileViewportHeight();
+        window.addEventListener('resize', setMobileViewportHeight);
+        window.addEventListener('orientationchange', () => {
+            setTimeout(setMobileViewportHeight, 300);
+        });
+
+
 
         // ============================================
         // UI UPDATES
         // ============================================
         function updatePlayButton(isPlaying) {
             const btn = document.getElementById('play-pause-btn');
-            btn.textContent = isPlaying ? '⏸️' : '▶️';
+            btn.textContent = isPlaying ? '❚❚' : '▶';
         }
 
         function showCenterPlayButton() {
@@ -1321,6 +1373,7 @@ $chunkCount = $videoInfo['chunk_count'];
 
         function exitPlayer() {
             if (confirm('Exit secure player? Your viewing position will not be saved.')) {
+                unlockOrientation();
                 // Cleanup
                 if (progressUpdateInterval) {
                     clearInterval(progressUpdateInterval);

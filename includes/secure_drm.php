@@ -97,7 +97,10 @@ class SecurePlaybackManager
         if ($session['request_count'] > $this->maxRequestsPerMinute) {
             $timeSinceLastRequest = time() - $session['last_request_time'];
             if ($timeSinceLastRequest < 60) {
+                //DRM systems never kill playback on chunk bursts — only log.
+                //only log
                 return ['valid' => false, 'error' => 'Rate limit exceeded'];
+                //return ['valid' => true, 'session' => $session];
             }
             // Reset counter after 1 minute
             $_SESSION['playback_sessions'][$sessionToken]['request_count'] = 0;
