@@ -10,7 +10,7 @@ class VideoEncryption
             'width' => 640,
             'height' => 360,
             'audio_bitrate' => '96k'
-        ],
+        ],/*
         '480p' => [
             'video_bitrate' => '1400k',
             'width' => 854,
@@ -28,7 +28,7 @@ class VideoEncryption
             'width' => 1920,
             'height' => 1080,
             'audio_bitrate' => '256k'
-        ]
+        ]*/
     ];
 
     public function encryptVideo($videoId, $inputFile, $title = '', $description = '')
@@ -182,7 +182,7 @@ class VideoEncryption
         return $tracks;
     }
 
-    private function processMultiQuality($inputFile, $outputDir, $key, $iv, $videoInfo, $tracks)
+    private function processMultiQuality($inputFile, $outputDir, $key, $iv, $videoInfo, &$tracks)
     {
         // Determine which qualities to generate based on source resolution
         $sourceHeight = $videoInfo['video']['height'] ?? 1080;
@@ -396,7 +396,7 @@ class VideoEncryption
         return count($segmentIndexes);
     }
 
-    private function extractSubtitles($inputFile, $outputDir, $tracks)
+    private function extractSubtitles($inputFile, $outputDir, &$tracks)
     {
         if (empty($tracks['subtitles'])) {
             return;
@@ -414,8 +414,9 @@ class VideoEncryption
                 $idx
             );
 
+            //old was -map 0:s:%d--newly added changes
             $cmd = sprintf(
-                'ffmpeg -y -i %s -map 0:s:%d %s 2>&1',
+                'ffmpeg -y -i %s -map 0:%d %s 2>&1',
                 escapeshellarg($inputFile),
                 $track['index'],
                 escapeshellarg($outputFile)

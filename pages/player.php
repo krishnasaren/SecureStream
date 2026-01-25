@@ -135,7 +135,7 @@ $chunkCount = $videoInfo['chunk_count'];
             pointer-events: none;
         }
 
-        .player-container:hover .player-overlay,
+        /*.player-container:hover .player-overlay,*/
         .player-overlay.force-show {
             opacity: 1;
             pointer-events: all;
@@ -876,6 +876,7 @@ $chunkCount = $videoInfo['chunk_count'];
                 if (videoDecryptor.subtitleTracks.length > 0) {
                     populateSubtitleMenu(videoDecryptor.subtitleTracks);
                 }
+                updateKeyboardShortcutsHint();
 
                 // Update quality display
                 document.getElementById('current-quality-text').textContent =

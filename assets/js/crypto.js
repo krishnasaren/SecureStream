@@ -83,6 +83,9 @@ class SecureVideoDecryptor {
 
         this.csrf_token = csrf_token;
 
+        this.chunkFailures = 0;
+        this.maxChunkFailures = 3;
+
     }
 
     // ================================================
@@ -675,6 +678,7 @@ class SecureVideoDecryptor {
             check();
         });
     }
+    
 
 
     async loadSubtitle(trackIndex) {
@@ -683,7 +687,7 @@ class SecureVideoDecryptor {
         }
 
         const track = this.subtitleTracks[trackIndex];
-        const url = `/stream/api/get_subtitle.php?video_id=${this.videoId}&index=${trackIndex}`;
+        const url = `/stream/api/get_subtitle.php?video_id=${this.videoId}&index=${trackIndex}&token=${this.sessionToken}`;
 
         try {
             const response = await fetch(url);
@@ -877,6 +881,29 @@ class SecureVideoDecryptor {
             this.heartbeatInterval = null;
         }
     }
+
+
+    handleFatalStreamError(reason) {
+        console.error('🛑 STREAM STOPPED:', reason);
+
+        if (this.chunkLoaderInterval) clearInterval(this.chunkLoaderInterval);
+        if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+
+        if (this.fetchController) {
+            this.fetchController.abort();
+        }
+
+        const video = document.getElementById('secure-video');
+        if (video) video.pause();
+
+        this.streamEnded = true;
+
+        alert(
+            'Playback stopped due to repeated network or decryption errors.\n' +
+            'Please refresh the page to continue.'
+        );
+    }
+
 
 
     handleSessionExpired() {
@@ -1169,6 +1196,8 @@ class SecureVideoDecryptor {
                 video: vEnc,
                 audio: aEnc
             });
+            this.chunkFailures = 0;
+            
 
             this.currentChunk++;
             this.pendingChunks.delete(index);
@@ -1180,6 +1209,12 @@ class SecureVideoDecryptor {
         } catch (error) {
             console.error(`Failed to load chunk ${index}:`, error);
             this.pendingChunks.delete(index);
+            this.chunkFailures++;
+            if (this.chunkFailures >= this.maxChunkFailures) {
+              this.handleFatalStreamError("Too many chunk fetch failures");
+              return;
+            }
+            await new Promise((r) => setTimeout(r, 800));
         }
     }
 
@@ -1223,9 +1258,16 @@ class SecureVideoDecryptor {
             await this.waitForUpdate(this.audioBuffer);
 
             console.log(`✅ Chunk ${chunk.index} appended`);
+            this.chunkFailures = 0;
 
         } catch (error) {
             console.error('Failed to process chunk:', error);
+            this.chunkFailures++;
+
+            if (this.chunkFailures >= this.maxChunkFailures) {
+              this.handleFatalStreamError("Too many decryption failures");
+              return;
+            }
         } finally {
             this.isDecrypting = false;
 

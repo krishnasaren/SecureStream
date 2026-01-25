@@ -90,6 +90,7 @@ $recentVideos = array_slice($videos, 0, 5);
             font-weight: bold;
             background: linear-gradient(to right, var(--primary), var(--secondary));
             -webkit-background-clip: text;
+            background-clip:text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -171,6 +172,7 @@ $recentVideos = array_slice($videos, 0, 5);
             font-weight: bold;
             background: linear-gradient(to right, var(--primary), var(--secondary));
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 

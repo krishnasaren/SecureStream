@@ -451,7 +451,7 @@ $userCount = $auth->getUserCount();
                         }
                     })
                     .catch(error => console.error('Failed to update video list:', error));
-            }, 30000);
+            }, 80000);
         });
     </script>
 </body>
