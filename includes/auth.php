@@ -137,4 +137,3 @@ class Auth
         return count($data['users']);
     }
 }
-?>

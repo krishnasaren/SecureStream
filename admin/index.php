@@ -519,7 +519,12 @@ $recentVideos = array_slice($videos, 0, 5);
                                 </td>
                                 <td>
                                     <div class="action-group">
-                                        <a href="../pages/player.php?id=<?php echo $video['id']; ?>" class="btn btn-primary">Play</a>
+                                        <form action="../pages/player.php?uuid=<?php echo createTimeBoundToken($video['id'], $_SESSION['user_id'], 10000); ?>"
+                                            method="POST">
+                                            <input type="hidden" name="id" value="<?php echo $video['id']; ?>">
+                                            <button type="submit" class="btn btn-primary">Play</button>
+                                        </form>
+                                        
                                         <button onclick="deleteVideo('<?php echo $video['id']; ?>')" class="btn btn-danger">Delete</button>
                                     </div>
 

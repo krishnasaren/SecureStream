@@ -11,11 +11,36 @@ if (!$auth->getCurrentUser()) {
     exit;
 }
 
+if (!isset($_GET['uuid'])) {
+    http_response_code(403);
+    exit('Direct access forbidden');
+}
+
+
+
+$payload = validateTimeBoundToken($_GET['uuid'] ?? '');
+if (!$payload) {
+    http_response_code(403);
+    exit('Invalid or expired uuid token');
+}
+$vid = $payload['vid'] ?? null;
+
+
 // Get video ID
-$videoId = $_GET['id'] ?? '';
+$videoId = $_POST['id'] ?? '';
 if (empty($videoId)) {
     die('Error: Video ID required');
 }
+
+if ($videoId !== $vid) {
+    die('Error: Video ID does not match token');
+}
+
+if ($payload['uid'] !== $_SESSION['user_id']) {
+    http_response_code(403);
+    exit('Token-user mismatch');
+}
+
 
 // Get video info
 $videoInfo = getVideoInfo($videoId);

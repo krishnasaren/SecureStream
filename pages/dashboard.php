@@ -1,6 +1,6 @@
 <?php
-require_once '../includes/config.php';
-require_once '../includes/auth.php';
+require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../includes/auth.php';
 
 // Initialize auth
 $auth = new Auth();
@@ -406,7 +406,12 @@ $userCount = $auth->getUserCount();
                                 </span>
                             </div>
                         </div>
-                        <a href="player.php?id=<?php echo $video['id']; ?>" class="play-btn">▶ Play Securely</a>
+                        <form action="player.php?uuid=<?php echo createTimeBoundToken($video['id'], $_SESSION['user_id'], 4800); ?>" method="POST">
+                            <input type="hidden" name="id" value="<?php echo $video['id']; ?>">
+                            <button type="submit" class="play-btn">▶ Play Securely</button>
+                        </form>
+                        
+                        
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -421,11 +426,11 @@ $userCount = $auth->getUserCount();
         }
 
         // Add some interactivity
-        document.addEventListener('DOMContentLoaded', function () {
+        document.addEventListener('DOMContentLoaded', function() {
             // Add click animation to video cards
             const videoCards = document.querySelectorAll('.video-card');
             videoCards.forEach(card => {
-                card.addEventListener('click', function (e) {
+                card.addEventListener('click', function(e) {
                     if (!e.target.classList.contains('play-btn')) {
                         this.style.transform = 'scale(0.98)';
                         setTimeout(() => {
@@ -437,7 +442,7 @@ $userCount = $auth->getUserCount();
 
             // Auto-refresh video list every 30 seconds
             setInterval(() => {
-                fetch('../api/get_video_list.php')
+                fetch('../api/get_video_list.php?csrf_token=<?php echo $_SESSION['csrf_token']; ?>')
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {

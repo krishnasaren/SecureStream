@@ -6,6 +6,21 @@ require_once '../includes/encryption.php';
 
 header('Content-Type: application/json');
 
+
+$referer = $_SERVER['HTTP_REFERER'] ?? '';
+
+if (!$referer) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Not Allowed']);
+    exit;
+}
+
+if (parse_url($referer, PHP_URL_HOST) !== parse_url('//' . $_SERVER['HTTP_HOST'], PHP_URL_HOST)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Invalid Requests']);
+    exit;
+}
+
 // Initialize auth and encryption
 $auth = new Auth();
 $encryption = new VideoEncryption();

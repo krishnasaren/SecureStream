@@ -15,11 +15,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Security headers
-header("X-Frame-Options: DENY");
-header("X-XSS-Protection: 1; mode=block");
-header("X-Content-Type-Options: nosniff");
-header("Referrer-Policy: strict-origin-when-cross-origin");
+
 
 
 
@@ -56,6 +52,26 @@ foreach ($directories as $dir) {
 // Encryption settings
 define('ENCRYPTION_METHOD', 'AES-256-CTR');
 define('CHUNK_SIZE_SECONDS', 10); // Split into 10-second chunks
+
+
+
+// ==================================================
+define('APP_SECRET_FILE', BASE_PATH . '/app_secret.key');
+
+if (!file_exists(APP_SECRET_FILE)) {
+    // Generate a strong 32-byte secret ONCE
+    $appSecret = random_bytes(32);
+    file_put_contents(APP_SECRET_FILE, base64_encode($appSecret));
+    chmod(APP_SECRET_FILE, 0600);
+}
+
+$appSecret = base64_decode(file_get_contents(APP_SECRET_FILE));
+
+if ($appSecret === false || strlen($appSecret) !== 32) {
+    die('Invalid APP_SECRET length');
+}
+
+define('APP_SECRET', $appSecret);
 
 // Get or create master key
 function getMasterKey()
@@ -138,6 +154,55 @@ function getAllVideos()
 }
 
 
+function createTimeBoundToken(string $videoId, string $userId, int $ttlSeconds = 60): string
+{
+    $expiry = time() + $ttlSeconds;
+    $random = bin2hex(random_bytes(8)); // entropy
+
+    $payload = json_encode([
+        'vid' => $videoId,
+        'uid' => $userId,
+        'exp' => $expiry,
+        'rnd' => $random
+    ]);
+
+    $payloadB64 = rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
+
+    $secret = APP_SECRET; // never expose
+    $signature = hash_hmac('sha256', $payloadB64, $secret, true);
+    $signatureB64 = rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
+
+    return $payloadB64 . '.' . $signatureB64;
+}
+function validateTimeBoundToken(string $token): array|false
+{
+    if (!str_contains($token, '.')) {
+        return false;
+    }
+
+    [$payloadB64, $sigB64] = explode('.', $token, 2);
+
+    $secret = APP_SECRET;
+    $expectedSig = hash_hmac('sha256', $payloadB64, $secret, true);
+    $expectedSigB64 = rtrim(strtr(base64_encode($expectedSig), '+/', '-_'), '=');
+
+    if (!hash_equals($expectedSigB64, $sigB64)) {
+        return false; // tampered
+    }
+
+    $payload = json_decode(base64_decode(strtr($payloadB64, '-_', '+/')), true);
+    if (!$payload || time() > $payload['exp']) {
+        return false; // expired
+    }
+
+    return $payload;
+}
 
 
-?>
+// Security headers
+header("X-Frame-Options: DENY");
+header("X-XSS-Protection: 1; mode=block");
+header("X-Content-Type-Options: nosniff");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+
+
