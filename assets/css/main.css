@@ -425,3 +425,495 @@
 
 
 
+
+
+/*Screen Mobile*/
+/* Add these styles to your existing <style> section */
+
+/* Mobile-specific improvements */
+@media (max-width: 768px) {
+    /* Adjust top bar for mobile */
+    .top-bar {
+        padding: 12px 15px;
+        flex-wrap: wrap;
+    }
+
+    .back-btn {
+        padding: 8px 12px;
+        font-size: 12px;
+        gap: 5px;
+    }
+
+    .video-title {
+        max-width: 150px;
+        font-size: 14px;
+    }
+
+    .security-badge {
+        padding: 6px 10px;
+        font-size: 10px;
+        gap: 5px;
+    }
+
+    .security-info {
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    /* Bottom controls optimization */
+    .bottom-controls {
+        padding: 12px 15px;
+    }
+
+    .control-buttons {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .left-controls,
+    .right-controls {
+        width: 100%;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .control-btn {
+        font-size: 18px;
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* Make touch targets larger */
+    .control-btn,
+    .back-btn {
+        -webkit-tap-highlight-color: rgba(102, 126, 234, 0.3);
+    }
+
+    /* Volume controls */
+    .volume-container {
+        flex: 1;
+        max-width: 200px;
+        min-width: 120px;
+    }
+
+    .volume-slider {
+        flex: 1;
+        min-width: 60px;
+    }
+
+    /* Quality, Audio, Subtitle menus */
+    .quality-selector-container,
+    .audio-selector-container,
+    .subtitle-selector-container {
+        position: relative;
+    }
+
+    .quality-menu,
+    .audio-menu,
+    .subtitle-menu {
+        position: fixed;
+        bottom: 80px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90%;
+        max-width: 300px;
+        max-height: 40vh;
+        overflow-y: auto;
+        background: rgba(0, 0, 0, 0.95);
+        border-radius: 12px;
+        padding: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s, transform 0.3s;
+        z-index: 10005;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .quality-menu.show,
+    .audio-menu.show,
+    .subtitle-menu.show {
+        opacity: 1;
+        pointer-events: all;
+    }
+
+    .menu-item {
+        padding: 14px 16px;
+        margin: 4px 0;
+        cursor: pointer;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.05);
+        transition: all 0.2s;
+        font-size: 15px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+
+    .menu-item:active {
+        background: rgba(102, 126, 234, 0.3);
+        transform: scale(0.98);
+    }
+
+    .menu-item.active {
+        background: rgba(102, 126, 234, 0.2);
+        color: var(--primary);
+        font-weight: 600;
+    }
+
+    /* Progress bar touch area */
+    .progress-container {
+        padding: 15px 0;
+        margin-bottom: 15px;
+    }
+
+    .progress-bar {
+        height: 6px;
+    }
+
+    .progress::after {
+        width: 16px;
+        height: 16px;
+        right: -8px;
+    }
+
+    /* Center play button */
+    .center-play-btn {
+        width: 70px;
+        height: 70px;
+        font-size: 28px;
+    }
+
+    /* Shortcuts hint - mobile optimized */
+    .shortcuts-hint {
+        width: 90%;
+        max-width: 350px;
+        max-height: 70vh;
+        overflow-y: auto;
+        padding: 20px;
+        -webkit-overflow-scrolling: touch;
+        
+    }
+
+    .shortcuts-hint h3 {
+        font-size: 18px;
+        margin-bottom: 15px;
+        position: sticky;
+        top: 0;
+        background: rgba(0, 0, 0, 0.95);
+        padding: 10px 0;
+        z-index: 1;
+    }
+
+    .shortcut-item {
+        padding: 10px 0;
+        font-size: 14px;
+    }
+
+    .shortcut-key {
+        font-size: 11px;
+        padding: 5px 10px;
+    }
+
+    /* Loading screen */
+    .loading-screen {
+        padding: 20px;
+    }
+
+    .decryption-status {
+        font-size: 16px;
+    }
+
+    .decryption-step {
+        font-size: 13px;
+    }
+
+    .decryption-progress {
+        width: 90%;
+        max-width: 250px;
+    }
+
+    /* Security warning */
+    .security-warning {
+        bottom: 120px;
+        padding: 10px 16px;
+        font-size: 11px;
+        max-width: 90%;
+    }
+
+    /* Buffer indicator */
+    .buffer-indicator {
+        padding: 15px 20px;
+        font-size: 14px;
+    }
+
+    .buffer-spinner {
+        width: 24px;
+        height: 24px;
+    }
+
+    /* Time display */
+    .time-display {
+        font-size: 13px;
+        margin-top: 5px;
+    }
+
+    #speed-display {
+        font-size: 13px;
+    }
+
+    /* Current quality text */
+    #current-quality-text {
+        font-size: 13px;
+    }
+}
+
+/* Portrait mode specific */
+@media (max-width: 768px) and (orientation: portrait) {
+    .left-controls,
+    .right-controls {
+        gap: 8px;
+    }
+
+    .control-btn {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        min-height: 40px;
+        font-size: 16px;
+    }
+
+    .volume-container {
+        order: -1;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .right-controls {
+        justify-content: space-around;
+    }
+}
+
+/* Landscape mode specific */
+@media (max-width: 768px) and (orientation: landscape) {
+    .top-bar,
+    .bottom-controls {
+        padding: 8px 15px;
+    }
+
+    .control-buttons {
+        flex-direction: row;
+        gap: 10px;
+    }
+
+    .left-controls,
+    .right-controls {
+        flex-direction: row;
+        gap: 10px;
+    }
+
+    .security-info {
+        flex-direction: row;
+    }
+}
+
+/* Very small screens */
+@media (max-width: 375px) {
+    .control-btn {
+        width: 38px;
+        height: 38px;
+        min-width: 38px;
+        min-height: 38px;
+        font-size: 15px;
+    }
+
+    .back-btn {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+
+    .video-title {
+        font-size: 12px;
+        max-width: 120px;
+    }
+
+    .security-badge {
+        font-size: 9px;
+        padding: 5px 8px;
+    }
+}
+
+/* Tablet landscape */
+@media (min-width: 769px) and (max-width: 1024px) and (orientation: landscape) {
+    .control-btn {
+        width: 42px;
+        height: 42px;
+        font-size: 20px;
+    }
+
+    .top-bar,
+    .bottom-controls {
+        padding: 15px 25px;
+    }
+}
+
+/* Quality/Audio/Subtitle switching indicators */
+.quality-switching,
+.audio-switching {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.9);
+    padding: 20px 30px;
+    border-radius: 12px;
+    display: none;
+    align-items: center;
+    gap: 15px;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    z-index: 10002;
+    color: white;
+    font-size: 15px;
+}
+
+@media (max-width: 768px) {
+    .quality-switching,
+    .audio-switching {
+        padding: 15px 20px;
+        font-size: 14px;
+    }
+}
+
+.quality-switching.show,
+.audio-switching.show {
+    display: flex;
+}
+
+/* Audio changed notification */
+.audio-changed-notification {
+    position: fixed;
+    top: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    border-radius: 8px;
+    background: rgba(16, 185, 129, 0.95);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 10010;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+}
+
+.audio-changed-notification.show {
+    opacity: 1;
+}
+
+@media (max-width: 768px) {
+    .audio-changed-notification {
+        top: 80px;
+        padding: 10px 20px;
+        font-size: 13px;
+        max-width: 90%;
+        text-align: center;
+    }
+}
+
+/* Icon styles for better rendering */
+.icon {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    stroke: currentColor;
+    stroke-width: 0.5;
+}
+
+@media (max-width: 768px) {
+    .icon {
+        width: 18px;
+        height: 18px;
+    }
+}
+
+/* Center play icon */
+.center-icon {
+    width: 100%;
+    height: 100%;
+}
+
+/* Smooth scrolling for menus */
+.quality-menu,
+.audio-menu,
+.subtitle-menu {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(102, 126, 234, 0.5) transparent;
+}
+
+.quality-menu::-webkit-scrollbar,
+.audio-menu::-webkit-scrollbar,
+.subtitle-menu::-webkit-scrollbar {
+    width: 6px;
+}
+
+.quality-menu::-webkit-scrollbar-track,
+.audio-menu::-webkit-scrollbar-track,
+.subtitle-menu::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.quality-menu::-webkit-scrollbar-thumb,
+.audio-menu::-webkit-scrollbar-thumb,
+.subtitle-menu::-webkit-scrollbar-thumb {
+    background: rgba(102, 126, 234, 0.5);
+    border-radius: 3px;
+}
+
+/* Prevent text selection on mobile */
+@media (max-width: 768px) {
+    .player-overlay,
+    .control-btn,
+    .back-btn,
+    .menu-item {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+    .top-bar {
+        padding-top: max(20px, env(safe-area-inset-top));
+        padding-left: max(30px, env(safe-area-inset-left));
+        padding-right: max(30px, env(safe-area-inset-right));
+    }
+
+    .bottom-controls {
+        padding-bottom: max(20px, env(safe-area-inset-bottom));
+        padding-left: max(30px, env(safe-area-inset-left));
+        padding-right: max(30px, env(safe-area-inset-right));
+    }
+
+    @media (max-width: 768px) {
+        .top-bar {
+            padding-top: max(12px, env(safe-area-inset-top));
+            padding-left: max(15px, env(safe-area-inset-left));
+            padding-right: max(15px, env(safe-area-inset-right));
+        }
+
+        .bottom-controls {
+            padding-bottom: max(12px, env(safe-area-inset-bottom));
+            padding-left: max(15px, env(safe-area-inset-left));
+            padding-right: max(15px, env(safe-area-inset-right));
+        }
+    }
+}
+
+

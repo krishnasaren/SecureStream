@@ -50,13 +50,38 @@ if (!$videoInfo) {
 
 $title = $videoInfo['title'];
 $chunkCount = $videoInfo['chunk_count'];
+
+function isMobile()
+{
+    return preg_match(
+        '/android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i',
+        $_SERVER['HTTP_USER_AGENT']
+    );
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SecureStream">
+    <meta name="theme-color" content="#000000">
+    <meta name="format-detection" content="telephone=no">
+
+    <!-- Prevent iOS Safari from adding tap highlight -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <!-- For Android Chrome -->
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: light)">
+
     <title>
         <?php echo htmlspecialchars($title); ?> | SecureStream Player
     </title>
@@ -587,6 +612,47 @@ $chunkCount = $videoInfo['chunk_count'];
                 font-size: 24px;
             }
         }
+
+        body {
+            overscroll-behavior-y: contain;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* Disable pull-to-refresh */
+        html,
+        body {
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Add mobile-specific class styles */
+        .mobile-device .player-container {
+            touch-action: manipulation;
+        }
+
+        /* Improve tap responsiveness */
+        .mobile-device button,
+        .mobile-device .control-btn,
+        .mobile-device .menu-item {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Prevent text selection on mobile */
+        .mobile-device * {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        /* But allow selection for specific elements if needed */
+        .mobile-device input,
+        .mobile-device textarea {
+            -webkit-user-select: text;
+            user-select: text;
+        }
     </style>
 </head>
 
@@ -693,6 +759,29 @@ $chunkCount = $videoInfo['chunk_count'];
                     </div>
 
                     <div class="right-controls">
+                        <?php if (!isMobile()): ?>
+                            <button class="control-btn" onclick="toggleShortcutsHint()" title="Shortcuts (?)">
+                                <svg viewBox="0 0 24 24" class="icon">
+                                    <path d="M12 4
+                                         C8.7 4 6.5 5.9 6.5 8.5
+                                         H9
+                                         C9 7.2 10 6.2 12 6.2
+                                         C13.7 6.2 15 7.1 15 8.6
+                                         C15 9.8 14.2 10.4 12.9 11.2
+                                         C11.3 12.1 10.5 13.1 10.5 15
+                                         V16
+                                         H13
+                                         V15.3
+                                         C13 14.4 13.6 13.9 14.9 13.1
+                                         C16.6 12.1 17.5 11 17.5 8.8
+                                         C17.5 6 15.2 4 12 4
+                                         Z" fill="currentColor" />
+                                    <circle cx="12" cy="19" r="1.5" fill="currentColor" />
+                                </svg>
+                            </button>
+                        <?php endif; ?>
+
+
                         <button class="control-btn" onclick="skipBackward()" title="Backward 10s (←)"><svg viewBox="0 0 24 24" class="icon">
                                 <polygon points="11,5 3,12 11,19"></polygon>
                                 <polygon points="21,5 13,12 21,19"></polygon>
@@ -838,6 +927,19 @@ $chunkCount = $videoInfo['chunk_count'];
         let uiTimeout = null;
         let progressUpdateInterval = null;
 
+
+
+        let lastOrientation = window.orientation || screen.orientation?.angle || 0;
+
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let touchStartTime = 0;
+        let isSwiping = false;
+
+        let lastTouchEnd = 0;
+        let wakeLock = null;
+
+
         // ============================================
         // INITIALIZATION
         // ============================================
@@ -919,6 +1021,32 @@ $chunkCount = $videoInfo['chunk_count'];
             }
         }
 
+
+        async function requestWakeLock() {
+            if (!('wakeLock' in navigator)) {
+                console.log('Wake Lock API not supported');
+                return;
+            }
+
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('🔆 Screen wake lock active');
+
+                wakeLock.addEventListener('release', () => {
+                    console.log('🔅 Screen wake lock released');
+                });
+            } catch (error) {
+                console.log('Wake lock request failed:', error);
+            }
+        }
+
+        async function releaseWakeLock() {
+            if (wakeLock) {
+                await wakeLock.release();
+                wakeLock = null;
+            }
+        }
+
         // ============================================
         // EVENT LISTENERS
         // ============================================
@@ -929,6 +1057,7 @@ $chunkCount = $videoInfo['chunk_count'];
                 playerState.isPlaying = true;
                 updatePlayButton(true);
                 hideCenterPlayButton();
+                requestWakeLock();
             });
 
             videoPlayer.addEventListener('pause', () => {
@@ -936,6 +1065,7 @@ $chunkCount = $videoInfo['chunk_count'];
                 playerState.isPlaying = false;
                 updatePlayButton(false);
                 showCenterPlayButton();
+                releaseWakeLock();
             });
 
             videoPlayer.addEventListener('ended', () => {
@@ -944,6 +1074,7 @@ $chunkCount = $videoInfo['chunk_count'];
                 updatePlayButton(false);
                 showCenterPlayButton();
                 hideBuffering();
+                releaseWakeLock();
                 console.log('📺 Playback ended');
             });
 
@@ -999,6 +1130,50 @@ $chunkCount = $videoInfo['chunk_count'];
                 }
             });
 
+
+            videoPlayer.addEventListener('touchstart', (e) => {
+                touchStartX = e.touches[0].clientX;
+                touchStartY = e.touches[0].clientY;
+                touchStartTime = Date.now();
+                isSwiping = false;
+            }, {
+                passive: true
+            });
+
+            videoPlayer.addEventListener('touchmove', (e) => {
+                if (!touchStartX || !touchStartY) return;
+
+                const touchX = e.touches[0].clientX;
+                const touchY = e.touches[0].clientY;
+
+                const diffX = Math.abs(touchX - touchStartX);
+                const diffY = Math.abs(touchY - touchStartY);
+
+                // Detect horizontal swipe for seeking
+                if (diffX > 50 && diffX > diffY) {
+                    isSwiping = true;
+                }
+            }, {
+                passive: true
+            });
+
+            videoPlayer.addEventListener('touchend', (e) => {
+                const touchDuration = Date.now() - touchStartTime;
+
+                // Quick tap to play/pause
+                if (touchDuration < 200 && !isSwiping) {
+                    togglePlay();
+                    resetUITimeout();
+                }
+
+                // Reset
+                touchStartX = 0;
+                touchStartY = 0;
+                isSwiping = false;
+            }, {
+                passive: true
+            });
+
             // Volume change
             videoPlayer.addEventListener('volumechange', updateVolumeDisplay);
 
@@ -1025,6 +1200,62 @@ $chunkCount = $videoInfo['chunk_count'];
             // Initial volume
             updateVolumeDisplay();
             startProgressUpdates();
+
+
+            if (isMobileDevice()) {
+                let hasTriggeredFullscreen = false;
+
+                videoPlayer.addEventListener('play', async function autoFullscreen() {
+                    if (!hasTriggeredFullscreen &&
+                        !document.fullscreenElement &&
+                        !document.webkitFullscreenElement &&
+                        !document.mozFullScreenElement &&
+                        !document.msFullscreenElement) {
+                        hasTriggeredFullscreen = true;
+                        await enterMobileFullscreen();
+                    }
+                });
+            }
+
+            if (isMobileDevice()) {
+                console.log('📱 Mobile device detected');
+                console.log(`   Device: ${isIOS() ? 'iOS' : isAndroid() ? 'Android' : 'Other'}`);
+                console.log('   Auto-fullscreen: Enabled');
+                console.log('   Wake Lock: ' + ('wakeLock' in navigator ? 'Supported' : 'Not supported'));
+
+                // Add mobile-specific class to body
+                document.body.classList.add('mobile-device');
+
+                // Show mobile-optimized UI hint briefly
+                setTimeout(() => {
+                    if (!playerState.isInitialized) return;
+
+                    const hint = document.createElement('div');
+                    hint.style.cssText = `
+                    position: fixed;
+                    bottom: 150px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(102, 126, 234, 0.95);
+                    color: white;
+                    padding: 12px 24px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    z-index: 10010;
+                    text-align: center;
+                    max-width: 80%;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+                    `;
+                    hint.textContent = 'Tap screen to show/hide controls';
+                    document.body.appendChild(hint);
+
+                    setTimeout(() => {
+                        hint.style.opacity = '0';
+                        hint.style.transition = 'opacity 0.3s';
+                        setTimeout(() => hint.remove(), 300);
+                    }, 3000);
+                }, 2000);
+            }
         }
 
         // ============================================
@@ -1230,40 +1461,127 @@ $chunkCount = $videoInfo['chunk_count'];
             }
         }
         async function lockOrientationLandscape() {
+            if (!isMobileDevice()) return;
+
             try {
+                // Modern API
                 if (screen.orientation && screen.orientation.lock) {
-                    await screen.orientation.lock('landscape');
+                    await screen.orientation.lock('landscape').catch(() => {
+                        // Fallback - try landscape-primary
+                        return screen.orientation.lock('landscape-primary');
+                    });
+                    console.log('🔒 Orientation locked to landscape');
                 }
-            } catch (e) {}
+            } catch (error) {
+                console.log('Orientation lock not supported:', error);
+            }
         }
 
         async function unlockOrientation() {
             try {
                 if (screen.orientation && screen.orientation.unlock) {
                     screen.orientation.unlock();
+                    console.log('🔓 Orientation unlocked');
                 }
-            } catch (e) {}
-        }
-
-
-        function toggleFullscreen() {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().then(lockOrientationLandscape);
-            } else {
-                document.exitFullscreen().then(unlockOrientation);
+            } catch (error) {
+                console.log('Orientation unlock failed:', error);
             }
         }
 
+        function handleOrientationChange() {
+            const currentOrientation = window.orientation || screen.orientation?.angle || 0;
+
+            // Only on mobile devices
+            if (!isMobileDevice()) return;
+
+            // Recalculate viewport height
+            setMobileViewportHeight();
+
+            // Update UI timeout
+            resetUITimeout();
+
+            console.log(`📐 Orientation changed: ${lastOrientation}° → ${currentOrientation}°`);
+            lastOrientation = currentOrientation;
+        }
+
+
+        async function toggleFullscreen() {
+            const isFullscreen = document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement ||
+                document.msFullscreenElement;
+
+            if (!isFullscreen) {
+                // Enter fullscreen
+                const elem = document.documentElement;
+
+                if (elem.requestFullscreen) {
+                    await elem.requestFullscreen();
+                } else if (elem.webkitRequestFullscreen) {
+                    await elem.webkitRequestFullscreen();
+                } else if (elem.mozRequestFullScreen) {
+                    await elem.mozRequestFullScreen();
+                } else if (elem.msRequestFullscreen) {
+                    await elem.msRequestFullscreen();
+                }
+
+                // Lock orientation on mobile
+                if (isMobileDevice()) {
+                    await lockOrientationLandscape();
+                }
+            } else {
+                // Exit fullscreen
+                if (document.exitFullscreen) {
+                    await document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    await document.webkitExitFullscreen();
+                } else if (document.mozCancelFullScreen) {
+                    await document.mozCancelFullScreen();
+                } else if (document.msExitFullscreen) {
+                    await document.msExitFullscreen();
+                }
+
+                // Unlock orientation
+                await unlockOrientation();
+            }
+        }
+
+
+
+        function updateFullscreenButton() {
+            const btn = document.getElementById('fullscreen-btn');
+            const isFullscreen = document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement ||
+                document.msFullscreenElement;
+
+            btn.innerHTML = isFullscreen ?
+                '<svg viewBox="0 0 24 24" class="icon"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" fill="currentColor"/></svg>' :
+                '<svg viewBox="0 0 24 24" class="icon"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" fill="currentColor"/></svg>';
+        }
+
         function setMobileViewportHeight() {
+            // Handle mobile browser address bar
             const vh = window.innerHeight * 0.01;
             document.documentElement.style.setProperty('--vh', `${vh}px`);
+
+            // For iOS, also handle safe areas
+            if (isIOS()) {
+                document.documentElement.style.setProperty('--safe-top', 'env(safe-area-inset-top)');
+                document.documentElement.style.setProperty('--safe-bottom', 'env(safe-area-inset-bottom)');
+            }
         }
 
         setMobileViewportHeight();
-        window.addEventListener('resize', setMobileViewportHeight);
-        window.addEventListener('orientationchange', () => {
+        window.addEventListener('resize', () => {
+            setMobileViewportHeight();
+            // Delay to ensure browser UI is settled
             setTimeout(setMobileViewportHeight, 300);
         });
+        window.addEventListener('orientationchange', handleOrientationChange);
+        if (screen.orientation) {
+            screen.orientation.addEventListener('change', handleOrientationChange);
+        }
 
 
 
@@ -1547,6 +1865,14 @@ $chunkCount = $videoInfo['chunk_count'];
         function exitPlayer() {
             if (confirm('Exit secure player? Your viewing position will not be saved.')) {
                 unlockOrientation();
+                releaseWakeLock();
+                if (document.fullscreenElement || document.webkitFullscreenElement) {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    }
+                }
                 isExitingPlayer = true;
                 // Cleanup
                 if (progressUpdateInterval) {
@@ -1897,13 +2223,56 @@ $chunkCount = $videoInfo['chunk_count'];
             });
         }
 
+        async function enterMobileFullscreen() {
+            if (!isMobileDevice()) return;
+
+            try {
+                const elem = document.documentElement;
+
+                if (elem.requestFullscreen) {
+                    await elem.requestFullscreen();
+                } else if (elem.webkitRequestFullscreen) { // iOS Safari
+                    await elem.webkitRequestFullscreen();
+                } else if (elem.mozRequestFullScreen) { // Firefox
+                    await elem.mozRequestFullScreen();
+                } else if (elem.msRequestFullscreen) { // IE/Edge
+                    await elem.msRequestFullscreen();
+                }
+
+                // Lock to landscape on Android
+                if (isAndroid()) {
+                    await lockOrientationLandscape();
+                }
+
+                console.log('📱 Entered mobile fullscreen');
+            } catch (error) {
+                console.log('Fullscreen request failed:', error);
+            }
+        }
+
+
+        function isMobileDevice() {
+            return /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(navigator.userAgent) ||
+                (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+        }
+
+        function isIOS() {
+            return /iphone|ipad|ipod/i.test(navigator.userAgent);
+        }
+
+        function isAndroid() {
+            return /android/i.test(navigator.userAgent);
+        }
+
+
+
         // ============================================
         // EVENT LISTENERS - DOCUMENT
         // ============================================
-        document.addEventListener('fullscreenchange', () => {
+        /*document.addEventListener('fullscreenchange', () => {
             const btn = document.getElementById('fullscreen-btn');
             btn.textContent = document.fullscreenElement ? '⛶' : '⛶';
-        });
+        });*/
 
         document.addEventListener('DOMContentLoaded', initPlayer);
 
@@ -1931,9 +2300,12 @@ $chunkCount = $videoInfo['chunk_count'];
         });
 
         // Visibility change - pause when tab hidden
-        document.addEventListener('visibilitychange', () => {
+        document.addEventListener('visibilitychange', async () => {
             if (document.hidden && playerState.isPlaying) {
                 videoPlayer.pause();
+            }
+            if (document.visibilityState === 'visible' && !videoPlayer.paused) {
+                await requestWakeLock();
             }
         });
 
@@ -1969,6 +2341,30 @@ $chunkCount = $videoInfo['chunk_count'];
                 document.getElementById('subtitle-menu').classList.remove('show');
             }
         });
+
+
+        document.addEventListener('fullscreenchange', updateFullscreenButton);
+        document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+        document.addEventListener('mozfullscreenchange', updateFullscreenButton);
+        document.addEventListener('msfullscreenchange', updateFullscreenButton);
+
+        document.addEventListener('touchstart', (e) => {
+            const qualityMenu = document.getElementById('quality-menu');
+            const audioMenu = document.getElementById('audio-menu');
+            const subtitleMenu = document.getElementById('subtitle-menu');
+
+            // Check if tap is outside menus
+            if (!e.target.closest('.quality-selector-container') &&
+                !e.target.closest('.audio-selector-container') &&
+                !e.target.closest('.subtitle-selector-container')) {
+                qualityMenu.classList.remove('show');
+                audioMenu.classList.remove('show');
+                subtitleMenu.classList.remove('show');
+            }
+        }, {
+            passive: true
+        });
+
 
         console.log('🎬 SecureStream Player loaded');
     </script>

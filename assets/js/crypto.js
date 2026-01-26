@@ -1076,7 +1076,8 @@ class SecureVideoDecryptor {
     }
 
     async initSourceBuffers() {
-        const videoCodec = 'video/mp4; codecs="avc1.64001e"';
+        //const videoCodec = 'video/mp4; codecs="avc1.64001e"';
+        const videoCodec = 'video/mp4;';
         const audioCodec = 'audio/mp4; codecs="mp4a.40.2"';
 
         if (!MediaSource.isTypeSupported(videoCodec)) {

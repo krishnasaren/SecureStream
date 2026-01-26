@@ -75,6 +75,7 @@ $userCount = $auth->getUserCount();
             font-weight: bold;
             background: linear-gradient(to right, var(--primary), var(--secondary));
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -170,6 +171,7 @@ $userCount = $auth->getUserCount();
             font-weight: bold;
             background: linear-gradient(to right, var(--primary), var(--secondary));
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 

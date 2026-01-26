@@ -10,7 +10,7 @@ class VideoEncryption
             'width' => 640,
             'height' => 360,
             'audio_bitrate' => '96k'
-        ],/*
+        ],
         '480p' => [
             'video_bitrate' => '1400k',
             'width' => 854,
@@ -28,7 +28,7 @@ class VideoEncryption
             'width' => 1920,
             'height' => 1080,
             'audio_bitrate' => '256k'
-        ]*/
+        ]
     ];
 
     public function encryptVideo($videoId, $inputFile, $title = '', $description = '')
@@ -210,6 +210,7 @@ class VideoEncryption
                 $qualityDir,
                 $preset,
                 $tracks['audio'],
+                $videoInfo,
                 $key,
                 $iv
             );
@@ -291,7 +292,7 @@ class VideoEncryption
 
 
 
-    private function generateDASHSegments($inputFile, $outputDir, $preset, $audioTracks, $key, $iv)
+    private function generateDASHSegments($inputFile, $outputDir, $preset, $audioTracks, $videoInfo, $key, $iv)
     {
         // Build complex FFmpeg command for multi-track DASH
         $videoMap = '-map 0:v:0';
@@ -304,8 +305,24 @@ class VideoEncryption
         $audioMapStr = implode(' ', $audioMaps);
 
         // Decide copy capability
-        $canCopyVideo = $this->canVideoStreamCopy($inputFile);
-        $canCopyAudio = $this->canAudioStreamCopy($inputFile);
+        //$canCopyVideo = $this->canVideoStreamCopy($inputFile);
+        //$canCopyAudio = $this->canAudioStreamCopy($inputFile);
+        $codec = $videoInfo['video']['codec_name'] ?? '';
+        $pixFmt = $videoInfo['video']['pix_fmt'] ?? '';
+        $srcH = $videoInfo['video']['height'] ?? 0;
+
+        $canCopyVideo =
+            ($codec === 'h264' && $pixFmt === 'yuv420p' && abs($preset['height'] - $srcH) <= 8);
+
+        $canCopyAudio = false;
+        if (!empty($videoInfo['audio'])) {
+            $a = $videoInfo['audio'][0];
+            $canCopyAudio =
+                (($a['codec_name'] ?? '') === 'aac') &&
+                (($a['channels'] ?? 0) <= 2);
+        }
+
+        
 
         // Video args
         if ($canCopyVideo) {
@@ -440,7 +457,8 @@ class VideoEncryption
         $mpd .= '  <Period>' . "\n";
 
         // Video AdaptationSet
-        $mpd .= '    <AdaptationSet mimeType="video/mp4" codecs="avc1.64001e" ';
+        //$mpd .= '    <AdaptationSet mimeType="video/mp4" codecs="avc1.64001e" ';
+        $mpd .= '    <AdaptationSet mimeType="video/mp4" ';
         $mpd .= 'segmentAlignment="true" startWithSAP="1">' . "\n";
 
         foreach ($qualities as $quality => $preset) {
