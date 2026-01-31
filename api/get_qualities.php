@@ -60,6 +60,8 @@ echo json_encode([
     'has_multi_audio' => $videoInfo['has_multi_audio'] ?? false,
     'has_subtitles' => $videoInfo['has_subtitles'] ?? false,
     'chunk_count' => $videoInfo['chunk_count'],
-    'chunk_size_seconds' => $videoInfo['chunk_size_seconds']
+    'chunk_size_seconds' => $videoInfo['chunk_size_seconds'],
+    //'type' => $randomNumber = random_int(1, 100) % 2 === 0 ? 'VOD' : 'LIVE',
+    'type' => 'VOD',
 ]);
 ?>

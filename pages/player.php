@@ -940,6 +940,9 @@ function isMobile()
         let wakeLock = null;
 
 
+        let lastLiveSeek = 0;
+
+
         // ============================================
         // INITIALIZATION
         // ============================================
@@ -1080,6 +1083,13 @@ function isMobile()
 
             // Seeking events
             videoPlayer.addEventListener('seeking', () => {
+
+                //added later for live video
+                if (isLiveStream()) {
+                    const end = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+                    videoPlayer.currentTime = end - 0.5;
+                }
+                //end
                 playerState.isSeeking = true;
                 if (!isBuffered(videoPlayer.currentTime)) {
                     showBuffering();
@@ -1373,7 +1383,42 @@ function isMobile()
             seekToTime(newTime);
         }
 
+
+
+        function goToLiveEdge() {
+            const now = Date.now();
+            if (now - lastLiveSeek < 1000) return; // 1s guard
+            lastLiveSeek = now;
+
+            if (!videoPlayer.buffered.length || !videoDecryptor) return;
+
+            const chunkDur = videoDecryptor.videoInfo.chunk_size_seconds || 2;
+            const liveEdge =
+                videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+
+            const safeLiveTime = Math.max(0, liveEdge - (chunkDur * 1.5));
+
+            try {
+                videoPlayer.currentTime = safeLiveTime;
+            } catch (e) {
+                console.warn('Live edge seek failed:', e);
+            }
+        }
+
+
+
         async function seekToTime(time) {
+
+            // ❌ Prevent Infinity / NaN
+            if (!isFinite(time) || time < 0) {
+                console.warn('🚫 Invalid seek time:', time);
+                return;
+            }
+
+            if (isLiveStream()) {
+                //goToLiveEdge();
+                return;
+            }
             if (!videoPlayer.duration) return;
 
             const wasPlaying = !videoPlayer.paused;
@@ -1401,6 +1446,10 @@ function isMobile()
         }
 
         async function seekVideo(event) {
+            if (isLiveStream()) {
+                //goToLiveEdge();
+                return;
+            }
             const container = event.currentTarget;
             const rect = container.getBoundingClientRect();
             const clientX = event.touches ?
@@ -1620,7 +1669,20 @@ function isMobile()
         }
 
         function updateProgress() {
-            if (!videoPlayer.duration) return;
+            const currentTime = videoPlayer.currentTime;
+            document.getElementById('current-time').textContent = formatTime(currentTime);
+
+            if (isLiveStream()) {
+                // Live stream → progress bar stays full
+                document.getElementById('progress-bar').style.width = '100%';
+                return;
+            }
+
+            const percent = (currentTime / videoPlayer.duration) * 100;
+            document.getElementById('progress-bar').style.width = percent + '%';
+
+            playerState.currentTime = currentTime;
+            /*if (!videoPlayer.duration) return;
 
             const currentTime = videoPlayer.currentTime;
             const duration = videoPlayer.duration;
@@ -1629,26 +1691,67 @@ function isMobile()
             document.getElementById('progress-bar').style.width = percent + '%';
             document.getElementById('current-time').textContent = formatTime(currentTime);
 
-            playerState.currentTime = currentTime;
+            playerState.currentTime = currentTime;*/
         }
 
         function updateBufferedDisplay() {
-            if (!videoPlayer.buffered.length) return;
+            /*if (!videoPlayer.buffered.length) return;
+            
 
             const duration = videoPlayer.duration;
             const buffered = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
             const percent = (buffered / duration) * 100;
 
             document.getElementById('buffered-bar').style.width = percent + '%';
-            playerState.buffered = buffered;
+            playerState.buffered = buffered;*/
+            if (!videoPlayer.buffered.length) return;
+
+            if (isLiveStream()) {
+                document.getElementById('buffered-bar').style.width = '100%';
+                return;
+            }
+
+            const duration = videoPlayer.duration;
+            const buffered = videoPlayer.buffered.end(videoPlayer.buffered.length - 1);
+            const percent = (buffered / duration) * 100;
+
+            document.getElementById('buffered-bar').style.width = percent + '%';
         }
 
         function updateDurationDisplay() {
-            const duration = videoPlayer.duration;
+            /*const duration = videoPlayer.duration;
             if (duration > 0) {
                 document.getElementById('duration').textContent = formatTime(duration);
                 playerState.duration = duration;
+            }*/
+
+            const durationEl = document.getElementById('duration');
+
+            if (isLiveStream()) {
+                durationEl.innerHTML = `
+            <span style="
+                color: #ef4444;
+                font-weight: 700;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+            ">
+                <span style="
+                    width: 8px;
+                    height: 8px;
+                    background: #ef4444;
+                    border-radius: 50%;
+                    animation: livePulse 1.5s infinite;
+                "></span>
+                LIVE
+            </span>
+            `;
+                playerState.duration = Infinity;
+                return;
             }
+
+            durationEl.textContent = formatTime(videoPlayer.duration);
+            playerState.duration = videoPlayer.duration;
         }
 
         function startProgressUpdates() {
@@ -1787,6 +1890,14 @@ function isMobile()
             }
             return false;
         }
+
+        function isLiveStream() {
+            return !isFinite(videoPlayer.duration) || videoPlayer.duration === Infinity;
+        }
+
+
+
+
 
         function formatTime(seconds) {
             if (isNaN(seconds)) return '00:00';

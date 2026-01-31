@@ -149,6 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-weight: bold;
             background: linear-gradient(to right, var(--primary), var(--secondary));
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -195,6 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             margin-bottom: 10px;
             background: linear-gradient(to right, var(--primary), var(--secondary));
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -631,7 +633,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             // Show success message and reload
                             alert('✅ Video uploaded and encrypted successfully!\nVideo ID: ' + data.video_id);
                             location.reload();
-                        }, 1000);
+                        }, 2000);
                     } else {
                         updateProgress(0, 'Error: ' + (data.error || 'Processing failed'));
                         uploadBtn.disabled = false;

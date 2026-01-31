@@ -86,6 +86,9 @@ class SecureVideoDecryptor {
         this.chunkFailures = 0;
         this.maxChunkFailures = 3;
 
+        this.videoTypes = "";
+        this.appendedChunks = new Set();
+
     }
 
     // ================================================
@@ -119,9 +122,10 @@ class SecureVideoDecryptor {
 
             // Get available qualities and tracks
             const tracksInfo = await this.fetchAvailableTracks();
-            this.availableQualities = tracksInfo.qualities || ['720p'];
+            this.availableQualities = tracksInfo.qualities || ['360p'];
             this.audioTracks = tracksInfo.audio_tracks || [];
             this.subtitleTracks = tracksInfo.subtitle_tracks || [];
+            this.videoTypes = tracksInfo.type || "VOD";
             
             // Auto-select best quality
             this.currentQuality = this.selectBestQuality();
@@ -144,7 +148,7 @@ class SecureVideoDecryptor {
     }
 
     async createPlaybackSession(videoId) {
-        const response = await fetch('/stream/api/init_playback.php', {
+        const response = await fetch('../api/init_playback.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: `video_id=${encodeURIComponent(videoId)}&csrf_token=${encodeURIComponent(this.csrf_token)}`
@@ -157,7 +161,7 @@ class SecureVideoDecryptor {
         return await response.json();
     }
     async fetchAvailableTracks() {
-        const response = await fetch(`/stream/api/get_qualities.php`, {
+        const response = await fetch(`../api/get_qualities.php`, {
           method: "POST",
           credentials: "same-origin",
           headers: {
@@ -181,11 +185,11 @@ class SecureVideoDecryptor {
             return '480p';
         }
         
-        return this.availableQualities[0] || '720p';
+        return this.availableQualities[0] || '360p';
     }
 
     async fetchInitSegmentWithQuality(track, quality) {
-        const url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}&csrf_token=${this.csrf_token}`;
+        const url = `../api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}&csrf_token=${this.csrf_token}`;
         const response = await fetch(url);
 
         if (!response.ok) {
@@ -233,6 +237,8 @@ class SecureVideoDecryptor {
             // Clear queues
             this.chunkQueue = [];
             this.pendingChunks.clear();
+            this.appendedChunks.clear();
+
 
             // Update quality
             const oldQuality = this.currentQuality;
@@ -321,6 +327,8 @@ class SecureVideoDecryptor {
             this.currentQuality = oldQuality;
             this.chunkQueue = [];
             this.pendingChunks.clear();
+            this.appendedChunks.clear();
+
             this.startChunkLoader();
 
             return false;
@@ -364,7 +372,7 @@ class SecureVideoDecryptor {
     async validateAudioTrackAvailable(trackIndex) {
         try {
             // Try to fetch the first chunk of this audio track
-            const testUrl = `/stream/api/stream_chunk_secure.php?` +
+            const testUrl = `../api/stream_chunk_secure.php?` +
                 `video_id=${encodeURIComponent(this.videoId)}` +
                 `&track=audio` +
                 `&index=0` +
@@ -491,6 +499,8 @@ class SecureVideoDecryptor {
             // Clear queues
             this.chunkQueue = [];
             this.pendingChunks.clear();
+            this.appendedChunks.clear();
+
 
             // Update audio track
             const oldTrack = this.currentAudioTrack;
@@ -556,6 +566,8 @@ class SecureVideoDecryptor {
             // Clear queues again
             this.chunkQueue = [];
             this.pendingChunks.clear();
+            this.appendedChunks.clear();
+
 
             // Restart with old track
             this.startChunkLoader();
@@ -574,13 +586,13 @@ class SecureVideoDecryptor {
         const audioStreamId = 1 + trackIndex;
 
         // Try quality folder first
-        let url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=audio&quality=${this.currentQuality}&stream_id=${audioStreamId}&csrf_token=${this.csrf_token}`;
+        let url = `../api/init_segment.php?video_id=${this.videoId}&track=audio&quality=${this.currentQuality}&stream_id=${audioStreamId}&csrf_token=${this.csrf_token}`;
 
         let response = await fetch(url);
 
         // Fallback to root folder
         if (!response.ok) {
-            url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=audio&stream_id=${audioStreamId}&csrf_token=${this.csrf_token}`;
+            url = `../api/init_segment.php?video_id=${this.videoId}&track=audio&stream_id=${audioStreamId}&csrf_token=${this.csrf_token}`;
             response = await fetch(url);
         }
 
@@ -687,7 +699,7 @@ class SecureVideoDecryptor {
         }
 
         const track = this.subtitleTracks[trackIndex];
-        const url = `/stream/api/get_subtitle.php?video_id=${this.videoId}&index=${trackIndex}&token=${this.sessionToken}`;
+        const url = `../api/get_subtitle.php?video_id=${this.videoId}&index=${trackIndex}&token=${this.sessionToken}`;
 
         try {
             const response = await fetch(url);
@@ -764,7 +776,7 @@ class SecureVideoDecryptor {
     }
 
     async fetchVideoInfo() {
-        const response = await fetch(`/stream/api/video_info.php`, {
+        const response = await fetch(`../api/video_info.php`, {
           method: "POST",
           credentials: "same-origin",
           headers: {
@@ -796,7 +808,7 @@ class SecureVideoDecryptor {
 
         try {
             const response = await fetch(
-                `/stream/api/get_chunk_key.php?` +
+                `../api/get_chunk_key.php?` +
                 `video_id=${encodeURIComponent(this.videoId)}` +
                 `&chunk_index=${chunkIndex}` +
                 `&session_token=${encodeURIComponent(this.sessionToken)}`
@@ -843,7 +855,7 @@ class SecureVideoDecryptor {
                 const videoEl = document.getElementById('secure-video');
                 const currentTime = videoEl ? videoEl.currentTime : 0;
 
-                const response = await fetch('/stream/api/playback_heartbeat.php', {
+                const response = await fetch('../api/playback_heartbeat.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: `token=${encodeURIComponent(this.sessionToken)}&current_time=${currentTime}`
@@ -948,7 +960,7 @@ class SecureVideoDecryptor {
             audioStreamId = 1 + this.currentAudioTrack;
         }
 
-        const url = `/stream/api/stream_chunk_secure.php?` +
+        const url = `../api/stream_chunk_secure.php?` +
             `video_id=${encodeURIComponent(this.videoId)}` +
             `&track=${track}` +
             `&index=${index}` +
@@ -965,7 +977,10 @@ class SecureVideoDecryptor {
             if (!response.ok) {
                 if (response.status === 404) {
                     console.warn(`Chunk ${track}:${index} not found in ${this.currentQuality}, audio track ${this.currentAudioTrack}`);
-                    return null;
+                    //return null;
+                    const err = new Error(`CHUNK_NOT_FOUND:${track}:${index}`);
+                    err.code = "CHUNK_NOT_FOUND";
+                    throw err;
                 }
                 throw new Error(`HTTP ${response.status}`);
             }
@@ -1076,8 +1091,8 @@ class SecureVideoDecryptor {
     }
 
     async initSourceBuffers() {
-        //const videoCodec = 'video/mp4; codecs="avc1.64001e"';
-        const videoCodec = 'video/mp4;';
+        const videoCodec = 'video/mp4; codecs="avc1.64001e"';
+        //const videoCodec = 'video/mp4;';
         const audioCodec = 'audio/mp4; codecs="mp4a.40.2"';
 
         if (!MediaSource.isTypeSupported(videoCodec)) {
@@ -1110,14 +1125,25 @@ class SecureVideoDecryptor {
         this.audioBuffer.appendBuffer(aInit);
         await this.waitForUpdate(this.audioBuffer);
 
-        const totalDuration = this.videoInfo.chunk_count * this.videoInfo.chunk_size_seconds;
-        this.mediaSource.duration = totalDuration;
 
-        console.log(`✅ Init segments appended, duration: ${totalDuration}s`);
+
+        //for video duration management if needed in future
+
+        if (this.videoTypes === 'VOD'){
+            const totalDuration =
+              this.videoInfo.chunk_count * this.videoInfo.chunk_size_seconds;
+            this.mediaSource.duration = totalDuration;
+
+            console.log(
+              `✅ Init segments appended, duration: ${totalDuration}s`,
+            );
+        }
+
+        
     }
 
     async fetchInitSegment(track, quality) {
-        const url = `/stream/api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}&csrf_token=${this.csrf_token}`;
+        const url = `../api/init_segment.php?video_id=${this.videoId}&track=${track}&quality=${quality}&csrf_token=${this.csrf_token}`;
         const response = await fetch(url);
 
         if (!response.ok) {
@@ -1142,9 +1168,18 @@ class SecureVideoDecryptor {
             const hasCapacity = this.chunkQueue.length < this.config.maxQueueSize;
             const hasMoreChunks = this.currentChunk < this.chunkCount;
 
-            if ((this.seeking || needsMoreChunks) && hasCapacity && hasMoreChunks) {
+            /*if ((this.seeking || needsMoreChunks) && hasCapacity && hasMoreChunks) {
                 this.loadNextChunks();
+            }*/
+            if (
+              !this.seeking &&
+              (needsMoreChunks || this.chunkQueue.length === 0) &&
+              hasCapacity &&
+              hasMoreChunks
+            ) {
+              this.loadNextChunks();
             }
+
 
             if (Date.now() - this.lastBufferCleanup > this.config.cleanupInterval) {
                 this.cleanupOldBuffers(videoEl);
@@ -1164,7 +1199,7 @@ class SecureVideoDecryptor {
         const index = this.currentChunk;
 
         if (index >= this.chunkCount) {
-            if (!this.streamEnded &&
+            /*if (!this.streamEnded &&
                 this.chunkQueue.length === 0 &&
                 this.mediaSource &&
                 this.mediaSource.readyState === 'open') {
@@ -1173,7 +1208,21 @@ class SecureVideoDecryptor {
                 clearInterval(this.chunkLoaderInterval);
                 this.mediaSource.endOfStream();
                 this.streamEnded = true;
+            }*/
+            if (
+              !this.streamEnded &&
+              this.currentChunk >= this.chunkCount &&
+              this.chunkQueue.length === 0 &&
+              this.pendingChunks.size === 0 &&
+              this.mediaSource &&
+              this.mediaSource.readyState === "open"
+            ) {
+              console.log("🏁 All chunks loaded");
+              //clearInterval(this.chunkLoaderInterval);
+              this.mediaSource.endOfStream();
+              this.streamEnded = true;
             }
+
             return;
         }
 
@@ -1210,6 +1259,18 @@ class SecureVideoDecryptor {
         } catch (error) {
             console.error(`Failed to load chunk ${index}:`, error);
             this.pendingChunks.delete(index);
+            if (error.code === "CHUNK_NOT_FOUND") {
+              console.warn(
+                `⏭️ Skipping missing chunk ${index} in ${this.currentQuality}`,
+              );
+
+              // IMPORTANT: advance chunk index
+              this.currentChunk++;
+
+              // Reset failure counter (not a network error)
+              this.chunkFailures = 0;
+              return;
+            }
             this.chunkFailures++;
             if (this.chunkFailures >= this.maxChunkFailures) {
               this.handleFatalStreamError("Too many chunk fetch failures");
@@ -1220,6 +1281,9 @@ class SecureVideoDecryptor {
     }
 
     async processNextChunk() {
+
+        
+
         if (this.isDecrypting ||
             this.chunkQueue.length === 0 ||
             !this.mediaSource ||
@@ -1231,19 +1295,30 @@ class SecureVideoDecryptor {
             return;
         }
 
+
         const videoEl = document.getElementById('secure-video');
         const bufferedAhead = this.getBufferedAhead(videoEl);
 
-        if (!this.seeking && 
+        /*if (!this.seeking && 
             !videoEl.paused && 
             bufferedAhead > this.config.maxBuffer) {
             return;
+        }*/
+        if (!this.seeking && bufferedAhead > this.config.maxBuffer) {
+          return;
         }
 
         this.isDecrypting = true;
 
         try {
             const chunk = this.chunkQueue.shift();
+            /*added*/
+            const chunkIndex = chunk.index;
+
+            if (this.appendedChunks.has(chunkIndex)) {
+              console.warn(`⏭️ Chunk ${chunkIndex} already appended, skipping`);
+              return;
+            }
 
             const [vDec, aDec] = await Promise.all([
                 this.decryptChunk(chunk.video, chunk.index),
@@ -1260,6 +1335,9 @@ class SecureVideoDecryptor {
 
             console.log(`✅ Chunk ${chunk.index} appended`);
             this.chunkFailures = 0;
+
+            //added
+            this.appendedChunks.add(chunkIndex);
 
         } catch (error) {
             console.error('Failed to process chunk:', error);
@@ -1284,7 +1362,14 @@ class SecureVideoDecryptor {
         }
     }
 
+
+
+
     async seek(timeSeconds) {
+        if (!isFinite(timeSeconds)) {
+          console.warn("🚫 Rejecting non-finite seek:", timeSeconds);
+          return;
+        }
         const chunkDuration = this.videoInfo.chunk_size_seconds;
         const targetChunk = Math.floor(timeSeconds / chunkDuration);
 
@@ -1304,6 +1389,7 @@ class SecureVideoDecryptor {
 
         this.chunkQueue = [];
         this.pendingChunks.clear();
+        this.appendedChunks.clear();
         this.currentChunk = targetChunk;
         this.isDecrypting = false;
         this.streamEnded = false;
@@ -1440,6 +1526,7 @@ class SecureVideoDecryptor {
         this.isDecrypting = false;
         this.streamEnded = false;
         this.seeking = false;
+        this.appendedChunks.clear();
 
         if (this.mediaSource) {
             try {
@@ -1502,6 +1589,8 @@ class SecureVideoDecryptor {
         this.chunkQueue = [];
         this.pendingChunks.clear();
         this.ephemeralKeys.clear();
+        this.appendedChunks.clear();
+
         
         if (this.mediaSource) {
             try {

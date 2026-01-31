@@ -5,6 +5,18 @@ class VideoEncryption
 {
     // Quality presets
     private $qualityPresets = [
+        '144p' => [
+            'video_bitrate' => '120k',
+            'width' => 256,
+            'height' => 144,
+            'audio_bitrate' => '48k'
+        ],
+        '240p' => [
+            'video_bitrate' => '300k',
+            'width' => 426,
+            'height' => 240,
+            'audio_bitrate' => '64k'
+        ],
         '360p' => [
             'video_bitrate' => '800k',
             'width' => 640,
@@ -219,8 +231,15 @@ class VideoEncryption
                 'chunks' => $chunkCount,
                 'preset' => $preset
             ];
+            //added later
 
-            $result['total_chunks'] = max($result['total_chunks'], $chunkCount);
+            //$result['total_chunks'] = max($result['total_chunks'], $chunkCount);
+            if ($result['total_chunks'] === 0) {
+                $result['total_chunks'] = $chunkCount;
+            } else {
+                $result['total_chunks'] = min($result['total_chunks'], $chunkCount);
+            }
+
         }
 
         // Generate master MPD manifest
@@ -393,7 +412,7 @@ class VideoEncryption
             throw new Exception("No DASH media chunks created for quality");
         }
 
-        $segmentIndexes = [];
+        /*$segmentIndexes = [];
 
         foreach ($mediaChunks as $file) {
             if (!preg_match('/chunk-stream(\d+)-(\d+)\.m4s$/', $file, $m)) {
@@ -410,7 +429,34 @@ class VideoEncryption
             }
         }
 
-        return count($segmentIndexes);
+        return count($segmentIndexes);*/
+        $streamSegments = [];
+
+        foreach ($mediaChunks as $file) {
+            if (!preg_match('/chunk-stream(\d+)-(\d+)\.m4s$/', $file, $m)) {
+                continue;
+            }
+
+            $streamId = (int) $m[1];
+            $segmentIndex = (int) $m[2] - 1;
+
+            // Encrypt
+            $this->encryptChunk($file, $key, $iv, $segmentIndex);
+
+            // Track per-stream segments
+            if (!isset($streamSegments[$streamId])) {
+                $streamSegments[$streamId] = [];
+            }
+            $streamSegments[$streamId][$segmentIndex] = true;
+        }
+
+        // 🔑 IMPORTANT: take MIN across streams
+        $counts = array_map('count', $streamSegments);
+        if (empty($counts)) {
+            throw new Exception("No valid DASH segments detected");
+        }
+        return min($counts);
+
     }
 
     private function extractSubtitles($inputFile, $outputDir, &$tracks)
@@ -457,8 +503,8 @@ class VideoEncryption
         $mpd .= '  <Period>' . "\n";
 
         // Video AdaptationSet
-        //$mpd .= '    <AdaptationSet mimeType="video/mp4" codecs="avc1.64001e" ';
-        $mpd .= '    <AdaptationSet mimeType="video/mp4" ';
+        $mpd .= '    <AdaptationSet mimeType="video/mp4" codecs="avc1.64001e" ';
+        //$mpd .= '    <AdaptationSet mimeType="video/mp4" ';
         $mpd .= 'segmentAlignment="true" startWithSAP="1">' . "\n";
 
         foreach ($qualities as $quality => $preset) {

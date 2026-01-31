@@ -620,6 +620,7 @@ class SecurePlaybackManager
         // Send encrypted data
         header('Content-Type: application/octet-stream');
         header('Content-Length: ' . strlen($reencryptedData));
+        header('Content-Disposition: attachment; filename="' . basename($chunkFile) . '"');
         header('Cache-Control: no-store, no-cache, must-revalidate');
         header('X-Content-Type-Options: nosniff');
         header('X-Chunk-Index: ' . $chunkIndex);
