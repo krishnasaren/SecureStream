@@ -2,9 +2,8 @@
 
 // Session security
 ini_set('session.cookie_httponly', 1);
-ini_set('session.cookie_secure', 1); // Set to 1 in production with HTTPS
+ini_set('session.cookie_secure', 1);
 ini_set('session.cookie_samesite', 'Strict');
-
 
 // Error reporting for development
 error_reporting(E_ALL);
@@ -14,10 +13,6 @@ ini_set('display_errors', 1);
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-
-
-
-
 
 // Define base path
 define('BASE_PATH', dirname(__DIR__));
@@ -30,8 +25,7 @@ define('THUMBNAILS_DIR', VIDEOS_DIR . 'thumbnails/');
 define('ORIGINAL_DIR', VIDEOS_DIR . 'original/');
 define('USERS_FILE', BASE_PATH . '/users/users.json');
 define('MASTER_KEY_FILE', BASE_PATH . '/server_master.key');
-
-//echo(dirname(__DIR__));
+define('PLAYBACK_LOGS_DIR', BASE_PATH . '/logs/');
 
 // Ensure all directories exist
 $directories = [
@@ -40,6 +34,7 @@ $directories = [
     KEYS_DIR,
     THUMBNAILS_DIR,
     ORIGINAL_DIR,
+    PLAYBACK_LOGS_DIR,
     dirname(USERS_FILE)
 ];
 
@@ -51,22 +46,18 @@ foreach ($directories as $dir) {
 
 // Encryption settings
 define('ENCRYPTION_METHOD', 'AES-256-CTR');
-define('CHUNK_SIZE_SECONDS', 10); // Split into 10-second chunks
-
-
+define('CHUNK_SIZE_SECONDS', 10);
 
 // ==================================================
 define('APP_SECRET_FILE', BASE_PATH . '/app_secret.key');
 
 if (!file_exists(APP_SECRET_FILE)) {
-    // Generate a strong 32-byte secret ONCE
     $appSecret = random_bytes(32);
     file_put_contents(APP_SECRET_FILE, base64_encode($appSecret));
     chmod(APP_SECRET_FILE, 0600);
 }
 
 $appSecret = base64_decode(file_get_contents(APP_SECRET_FILE));
-
 if ($appSecret === false || strlen($appSecret) !== 32) {
     die('Invalid APP_SECRET length');
 }
@@ -77,10 +68,9 @@ define('APP_SECRET', $appSecret);
 function getMasterKey()
 {
     if (!file_exists(MASTER_KEY_FILE)) {
-        // Generate a new master key
         $masterKey = random_bytes(32);
         file_put_contents(MASTER_KEY_FILE, base64_encode($masterKey));
-        chmod(MASTER_KEY_FILE, 0600); // Read/write only by owner
+        chmod(MASTER_KEY_FILE, 0600);
     }
 
     $masterKey = base64_decode(file_get_contents(MASTER_KEY_FILE));
@@ -108,17 +98,93 @@ function requireAuth()
     }
 }
 
-// Get video info
+// Get video info with proper chunk analysis
 function getVideoInfo($videoId)
 {
     $infoFile = ENCRYPTED_DIR . $videoId . '/info.json';
-    if (file_exists($infoFile)) {
-        return json_decode(file_get_contents($infoFile), true);
+    if (!file_exists($infoFile)) {
+        return null;
     }
-    return null;
+
+    $info = json_decode(file_get_contents($infoFile), true);
+
+    // Dynamically calculate chunk counts per quality and stream
+    if ($info && !isset($info['chunk_map'])) {
+        $info = updateChunkInfo($videoId, $info);
+    }
+
+    return $info;
 }
 
-//echo(getVideoInfo("video_1769094415")['title']);
+// Update chunk information dynamically
+function updateChunkInfo($videoId, $info)
+{
+    $videoDir = ENCRYPTED_DIR . $videoId . '/';
+    $chunkMap = [];
+
+    if (isset($info['qualities'])) {
+        foreach ($info['qualities'] as $quality) {
+            $qualityDir = $videoDir . $quality . '/';
+
+            if (is_dir($qualityDir)) {
+                // Find all chunk files for this quality
+                $videoChunks = glob($qualityDir . 'chunk-stream0-*.enc');
+                $audioChunks = [];
+
+                // Find audio streams (stream 1, 2, etc.)
+                $audioStreams = [];
+                $allChunks = glob($qualityDir . 'chunk-stream*.enc');
+                foreach ($allChunks as $chunk) {
+                    if (preg_match('/chunk-stream(\d+)-(\d+)\.enc$/', $chunk, $matches)) {
+                        $streamId = (int) $matches[1];
+                        $chunkNum = (int) $matches[2];
+
+                        if ($streamId === 0) {
+                            $videoChunks[] = $chunk;
+                        } else {
+                            if (!isset($audioStreams[$streamId])) {
+                                $audioStreams[$streamId] = [];
+                            }
+                            $audioStreams[$streamId][] = $chunkNum;
+                        }
+                    }
+                }
+
+                $chunkMap[$quality] = [
+                    'video' => count($videoChunks),
+                    'audio' => []
+                ];
+
+                foreach ($audioStreams as $streamId => $chunks) {
+                    $chunkMap[$quality]['audio'][$streamId] = [
+                        'count' => count(array_unique($chunks)),
+                        'stream_id' => $streamId
+                    ];
+                }
+            }
+        }
+    }
+
+    $info['chunk_map'] = $chunkMap;
+
+    // Calculate max chunks across all streams for this quality
+    $maxChunks = 0;
+    foreach ($chunkMap as $qualityData) {
+        $qualityMax = $qualityData['video'];
+        foreach ($qualityData['audio'] as $audioData) {
+            $qualityMax = max($qualityMax, $audioData['count']);
+        }
+        $info['quality_max_chunks'][$quality] = $qualityMax;
+    }
+
+    // Save updated info
+    file_put_contents(
+        ENCRYPTED_DIR . $videoId . '/info.json',
+        json_encode($info, JSON_PRETTY_PRINT)
+    );
+
+    return $info;
+}
 
 // Get all videos
 function getAllVideos()
@@ -143,6 +209,7 @@ function getAllVideos()
                 'description' => $info['description'] ?? '',
                 'created_at' => $info['created_at'] ?? date('Y-m-d H:i:s'),
                 'chunks' => $info['chunk_count'] ?? 0,
+                'qualities' => $info['qualities'] ?? [],
                 'thumbnail' => file_exists(THUMBNAILS_DIR . $videoId . '.jpg') ?
                     '/stream/videos/thumbnails/' . $videoId . '.jpg' :
                     'assets/default-thumb.jpg'
@@ -153,11 +220,11 @@ function getAllVideos()
     return $videos;
 }
 
-
+// Time-bound token functions
 function createTimeBoundToken(string $videoId, string $userId, int $ttlSeconds = 60): string
 {
     $expiry = time() + $ttlSeconds;
-    $random = bin2hex(random_bytes(8)); // entropy
+    $random = bin2hex(random_bytes(8));
 
     $payload = json_encode([
         'vid' => $videoId,
@@ -168,12 +235,13 @@ function createTimeBoundToken(string $videoId, string $userId, int $ttlSeconds =
 
     $payloadB64 = rtrim(strtr(base64_encode($payload), '+/', '-_'), '=');
 
-    $secret = APP_SECRET; // never expose
+    $secret = APP_SECRET;
     $signature = hash_hmac('sha256', $payloadB64, $secret, true);
     $signatureB64 = rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
 
     return $payloadB64 . '.' . $signatureB64;
 }
+
 function validateTimeBoundToken(string $token): array|false
 {
     if (!str_contains($token, '.')) {
@@ -187,22 +255,43 @@ function validateTimeBoundToken(string $token): array|false
     $expectedSigB64 = rtrim(strtr(base64_encode($expectedSig), '+/', '-_'), '=');
 
     if (!hash_equals($expectedSigB64, $sigB64)) {
-        return false; // tampered
+        return false;
     }
 
     $payload = json_decode(base64_decode(strtr($payloadB64, '-_', '+/')), true);
     if (!$payload || time() > $payload['exp']) {
-        return false; // expired
+        return false;
     }
 
     return $payload;
 }
 
+// Get chunk information for specific stream
+function getStreamChunkInfo($videoId, $quality, $streamId)
+{
+    $info = getVideoInfo($videoId);
+    if (!$info || !isset($info['chunk_map'][$quality])) {
+        return null;
+    }
+
+    if ($streamId === 0) {
+        return [
+            'count' => $info['chunk_map'][$quality]['video'],
+            'stream_id' => 0
+        ];
+    }
+
+    if (isset($info['chunk_map'][$quality]['audio'][$streamId])) {
+        return $info['chunk_map'][$quality]['audio'][$streamId];
+    }
+
+    return null;
+}
 
 // Security headers
 header("X-Frame-Options: DENY");
 header("X-XSS-Protection: 1; mode=block");
 header("X-Content-Type-Options: nosniff");
 header("Referrer-Policy: strict-origin-when-cross-origin");
-
-
+header("Cache-Control: no-store, no-cache, must-revalidate");
+?>

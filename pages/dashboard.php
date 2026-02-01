@@ -421,6 +421,8 @@ $userCount = $auth->getUserCount();
     </div>
 
     <script>
+        let retryCount = 0;
+        const maxRetries = 3;
         function logout() {
             if (confirm('Are you sure you want to logout?')) {
                 window.location.href = '?logout';
@@ -443,17 +445,27 @@ $userCount = $auth->getUserCount();
             });
 
             // Auto-refresh video list every 30 seconds
-            setInterval(() => {
+            const videoListInterval = setInterval(() => {
                 fetch('../api/get_video_list.php?csrf_token=<?php echo $_SESSION['csrf_token']; ?>')
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
                             // You could update the video grid here
                             console.log('Video list updated');
+                            retryCount = 0;
                         }
                     })
-                    .catch(error => console.error('Failed to update video list:', error));
-            }, 80000);
+                    .catch(error => {
+                        retryCount++;
+                        if (retryCount < maxRetries) {
+                            console.log(`Retrying to fetch video list... (${retryCount})`);
+                        } else {
+                            clearInterval(videoListInterval);
+                            console.error('Max retries reached. Could not update video list.');
+                        }
+                        console.error('Failed to update video list:', error)
+                    });
+            }, 20000);
         });
     </script>
 </body>

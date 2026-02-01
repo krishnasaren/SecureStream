@@ -21,3 +21,4 @@
 # Temp & cache
 /tmp/
 /cache/
+/logs/

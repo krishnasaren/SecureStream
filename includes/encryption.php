@@ -3,44 +3,13 @@ require_once 'config.php';
 
 class VideoEncryption
 {
-    // Quality presets
     private $qualityPresets = [
-        '144p' => [
-            'video_bitrate' => '120k',
-            'width' => 256,
-            'height' => 144,
-            'audio_bitrate' => '48k'
-        ],
-        '240p' => [
-            'video_bitrate' => '300k',
-            'width' => 426,
-            'height' => 240,
-            'audio_bitrate' => '64k'
-        ],
-        '360p' => [
-            'video_bitrate' => '800k',
-            'width' => 640,
-            'height' => 360,
-            'audio_bitrate' => '96k'
-        ],
-        '480p' => [
-            'video_bitrate' => '1400k',
-            'width' => 854,
-            'height' => 480,
-            'audio_bitrate' => '128k'
-        ],
-        '720p' => [
-            'video_bitrate' => '2800k',
-            'width' => 1280,
-            'height' => 720,
-            'audio_bitrate' => '192k'
-        ],
-        '1080p' => [
-            'video_bitrate' => '5000k',
-            'width' => 1920,
-            'height' => 1080,
-            'audio_bitrate' => '256k'
-        ]
+        '144p' => ['video_bitrate' => '120k', 'width' => 256, 'height' => 144, 'audio_bitrate' => '48k'],
+        '240p' => ['video_bitrate' => '300k', 'width' => 426, 'height' => 240, 'audio_bitrate' => '64k'],
+        '360p' => ['video_bitrate' => '800k', 'width' => 640, 'height' => 360, 'audio_bitrate' => '96k'],
+        '480p' => ['video_bitrate' => '1400k', 'width' => 854, 'height' => 480, 'audio_bitrate' => '128k'],
+        '720p' => ['video_bitrate' => '2800k', 'width' => 1280, 'height' => 720, 'audio_bitrate' => '192k'],
+        '1080p' => ['video_bitrate' => '5000k', 'width' => 1920, 'height' => 1080, 'audio_bitrate' => '256k']
     ];
 
     public function encryptVideo($videoId, $inputFile, $title = '', $description = '')
@@ -89,8 +58,8 @@ class VideoEncryption
             // Generate thumbnail
             $this->generateThumbnail($inputFile, $videoId);
 
-            // Create comprehensive video info
-            $this->createVideoInfo(
+            // Create comprehensive video info with chunk mapping
+            $videoInfo = $this->createVideoInfo(
                 $videoId,
                 $inputFile,
                 $title,
@@ -110,7 +79,8 @@ class VideoEncryption
                 'qualities' => array_keys($processResult['qualities']),
                 'audio_tracks' => count($tracks['audio']),
                 'subtitle_tracks' => count($tracks['subtitles']),
-                'title' => $title ?: basename($inputFile)
+                'title' => $title ?: basename($inputFile),
+                'chunk_map' => $processResult['chunk_map']
             ];
 
         } catch (Exception $e) {
@@ -196,13 +166,12 @@ class VideoEncryption
 
     private function processMultiQuality($inputFile, $outputDir, $key, $iv, $videoInfo, &$tracks)
     {
-        // Determine which qualities to generate based on source resolution
         $sourceHeight = $videoInfo['video']['height'] ?? 1080;
         $qualities = $this->selectQualities($sourceHeight);
 
         $result = [
             'qualities' => [],
-            'total_chunks' => 0
+            'chunk_map' => []
         ];
 
         // Extract and process subtitles first
@@ -210,14 +179,12 @@ class VideoEncryption
 
         // Process each quality
         foreach ($qualities as $quality => $preset) {
-            //echo "Processing quality: $quality\n";
-
             $qualityDir = $outputDir . $quality . '/';
             if (!is_dir($qualityDir))
                 mkdir($qualityDir, 0755, true);
 
             // Generate DASH segments for this quality
-            $chunkCount = $this->generateDASHSegments(
+            $chunkInfo = $this->generateDASHSegments(
                 $inputFile,
                 $qualityDir,
                 $preset,
@@ -228,22 +195,16 @@ class VideoEncryption
             );
 
             $result['qualities'][$quality] = [
-                'chunks' => $chunkCount,
+                'chunks' => $chunkInfo,
                 'preset' => $preset
             ];
-            //added later
 
-            //$result['total_chunks'] = max($result['total_chunks'], $chunkCount);
-            if ($result['total_chunks'] === 0) {
-                $result['total_chunks'] = $chunkCount;
-            } else {
-                $result['total_chunks'] = min($result['total_chunks'], $chunkCount);
-            }
-
+            // Store chunk mapping for this quality
+            $result['chunk_map'][$quality] = $chunkInfo;
         }
 
         // Generate master MPD manifest
-        $this->generateMasterMPD($outputDir, $qualities, $tracks, $result['total_chunks']);
+        $this->generateMasterMPD($outputDir, $qualities, $tracks, $result['chunk_map']);
 
         return $result;
     }
@@ -258,7 +219,6 @@ class VideoEncryption
             }
         }
 
-        // Always include at least one quality
         if (empty($selected)) {
             $selected['360p'] = $this->qualityPresets['360p'];
         }
@@ -266,54 +226,8 @@ class VideoEncryption
         return $selected;
     }
 
-    private function canVideoStreamCopy($inputFile)
-    {
-        $cmd = 'ffprobe -v error -select_streams v:0 '
-            . '-show_entries stream=codec_name,pix_fmt '
-            . '-of json ' . escapeshellarg($inputFile);
-
-        $json = shell_exec($cmd);
-        $info = json_decode($json, true);
-
-        if (!$info || empty($info['streams'][0])) {
-            return false;
-        }
-
-        $codec = $info['streams'][0]['codec_name'] ?? '';
-        $pixFmt = $info['streams'][0]['pix_fmt'] ?? '';
-
-        if ($codec === 'h264' && $pixFmt === 'yuv420p') {
-            return true;
-        }
-
-        return false; // HEVC, 10bit, VP9, etc
-    }
-
-    private function canAudioStreamCopy($inputFile)
-    {
-        $cmd = 'ffprobe -v error -select_streams a:0 '
-            . '-show_entries stream=codec_name,channels '
-            . '-of json ' . escapeshellarg($inputFile);
-
-        $json = shell_exec($cmd);
-        $info = json_decode($json, true);
-
-        if (!$info || empty($info['streams'][0])) {
-            return false;
-        }
-
-        $codec = $info['streams'][0]['codec_name'] ?? '';
-        $channels = $info['streams'][0]['channels'] ?? 0;
-
-        return ($codec === 'aac' && $channels <= 2);
-    }
-
-
-
-
     private function generateDASHSegments($inputFile, $outputDir, $preset, $audioTracks, $videoInfo, $key, $iv)
     {
-        // Build complex FFmpeg command for multi-track DASH
         $videoMap = '-map 0:v:0';
         $audioMaps = [];
 
@@ -323,30 +237,22 @@ class VideoEncryption
 
         $audioMapStr = implode(' ', $audioMaps);
 
-        // Decide copy capability
-        //$canCopyVideo = $this->canVideoStreamCopy($inputFile);
-        //$canCopyAudio = $this->canAudioStreamCopy($inputFile);
         $codec = $videoInfo['video']['codec_name'] ?? '';
         $pixFmt = $videoInfo['video']['pix_fmt'] ?? '';
         $srcH = $videoInfo['video']['height'] ?? 0;
 
-        $canCopyVideo =
-            ($codec === 'h264' && $pixFmt === 'yuv420p' && abs($preset['height'] - $srcH) <= 8);
-
+        $canCopyVideo = ($codec === 'h264' && $pixFmt === 'yuv420p' && abs($preset['height'] - $srcH) <= 8);
         $canCopyAudio = false;
+
         if (!empty($videoInfo['audio'])) {
             $a = $videoInfo['audio'][0];
-            $canCopyAudio =
-                (($a['codec_name'] ?? '') === 'aac') &&
-                (($a['channels'] ?? 0) <= 2);
+            $canCopyAudio = (($a['codec_name'] ?? '') === 'aac') && (($a['channels'] ?? 0) <= 2);
         }
-
-        
 
         // Video args
         if ($canCopyVideo) {
             $videoArgs = '-c:v copy';
-            $videoFilter = ''; // IMPORTANT: no scaling when copying
+            $videoFilter = '';
         } else {
             $videoArgs = sprintf(
                 '-c:v libx264 -preset ultrafast -b:v %s -maxrate %s -bufsize %s',
@@ -368,13 +274,10 @@ class VideoEncryption
         if ($canCopyAudio) {
             $audioArgs = '-c:a copy';
         } else {
-            $audioArgs = sprintf(
-                '-c:a aac -b:a %s -ac 2',
-                $preset['audio_bitrate']
-            );
+            $audioArgs = sprintf('-c:a aac -b:a %s -ac 2', $preset['audio_bitrate']);
         }
 
-        // FINAL command (single build, no overwrite)
+        // DASH command
         $cmd = sprintf(
             'ffmpeg -y -i %s ' .
             '%s %s ' .
@@ -396,163 +299,77 @@ class VideoEncryption
             escapeshellarg(rtrim($outputDir, '/'))
         );
 
-
-
         exec($cmd, $output, $returnCode);
 
         if ($returnCode !== 0) {
             throw new Exception("FFmpeg DASH failed:\n" . implode("\n", $output));
         }
 
-        // Encrypt all media segments (NOT init segments)
-        $mediaChunks = glob($outputDir . 'chunk-stream*.m4s');
-        sort($mediaChunks);
+        // Analyze generated chunks
+        $chunkInfo = $this->analyzeChunks($outputDir, $key, $iv, count($audioTracks));
 
-        if (empty($mediaChunks)) {
-            throw new Exception("No DASH media chunks created for quality");
-        }
-
-        /*$segmentIndexes = [];
-
-        foreach ($mediaChunks as $file) {
-            if (!preg_match('/chunk-stream(\d+)-(\d+)\.m4s$/', $file, $m)) {
-                continue;
-            }
-
-            $streamId = intval($m[1]);
-            $segmentIndex = intval($m[2]) - 1; // 0-based
-
-            $this->encryptChunk($file, $key, $iv, $segmentIndex);
-
-            if (!isset($segmentIndexes[$segmentIndex])) {
-                $segmentIndexes[$segmentIndex] = true;
-            }
-        }
-
-        return count($segmentIndexes);*/
-        $streamSegments = [];
-
-        foreach ($mediaChunks as $file) {
-            if (!preg_match('/chunk-stream(\d+)-(\d+)\.m4s$/', $file, $m)) {
-                continue;
-            }
-
-            $streamId = (int) $m[1];
-            $segmentIndex = (int) $m[2] - 1;
-
-            // Encrypt
-            $this->encryptChunk($file, $key, $iv, $segmentIndex);
-
-            // Track per-stream segments
-            if (!isset($streamSegments[$streamId])) {
-                $streamSegments[$streamId] = [];
-            }
-            $streamSegments[$streamId][$segmentIndex] = true;
-        }
-
-        // 🔑 IMPORTANT: take MIN across streams
-        $counts = array_map('count', $streamSegments);
-        if (empty($counts)) {
-            throw new Exception("No valid DASH segments detected");
-        }
-        return min($counts);
-
+        return $chunkInfo;
     }
 
-    private function extractSubtitles($inputFile, $outputDir, &$tracks)
+    private function analyzeChunks($outputDir, $key, $iv, $audioTrackCount)
     {
-        if (empty($tracks['subtitles'])) {
-            return;
-        }
+        $chunkInfo = [
+            'video' => 0,
+            'audio' => []
+        ];
 
-        $subsDir = $outputDir . 'subtitles/';
-        if (!is_dir($subsDir))
-            mkdir($subsDir, 0755, true);
+        // Find all chunk files
+        $allChunks = glob($outputDir . 'chunk-stream*.m4s');
 
-        foreach ($tracks['subtitles'] as $idx => $track) {
-            $outputFile = sprintf(
-                '%ssub_%s_%d.vtt',
-                $subsDir,
-                $track['language'],
-                $idx
-            );
+        // Group by stream ID
+        $streamChunks = [];
+        foreach ($allChunks as $chunk) {
+            if (preg_match('/chunk-stream(\d+)-(\d+)\.m4s$/', $chunk, $matches)) {
+                $streamId = (int) $matches[1];
+                $chunkNum = (int) $matches[2];
 
-            //old was -map 0:s:%d--newly added changes
-            $cmd = sprintf(
-                'ffmpeg -y -i %s -map 0:%d %s 2>&1',
-                escapeshellarg($inputFile),
-                $track['index'],
-                escapeshellarg($outputFile)
-            );
+                if (!isset($streamChunks[$streamId])) {
+                    $streamChunks[$streamId] = [];
+                }
 
-            exec($cmd, $output, $returnCode);
+                if (!in_array($chunkNum, $streamChunks[$streamId])) {
+                    $streamChunks[$streamId][] = $chunkNum;
+                }
 
-            if ($returnCode === 0) {
-                $tracks['subtitles'][$idx]['file'] = basename($outputFile);
+                // Encrypt the chunk
+                $this->encryptChunk($chunk, $key, $iv, $chunkNum - 1);
             }
         }
-    }
 
-    private function generateMasterMPD($outputDir, $qualities, $tracks, $totalChunks)
-    {
-        // Create a master manifest that references all qualities
-        $mpd = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
-        $mpd .= '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" ';
-        $mpd .= 'mediaPresentationDuration="PT' . ($totalChunks * CHUNK_SIZE_SECONDS) . 'S" ';
-        $mpd .= 'minBufferTime="PT2S" profiles="urn:mpeg:dash:profile:isoff-main:2011">' . "\n";
-        $mpd .= '  <Period>' . "\n";
-
-        // Video AdaptationSet
-        $mpd .= '    <AdaptationSet mimeType="video/mp4" codecs="avc1.64001e" ';
-        //$mpd .= '    <AdaptationSet mimeType="video/mp4" ';
-        $mpd .= 'segmentAlignment="true" startWithSAP="1">' . "\n";
-
-        foreach ($qualities as $quality => $preset) {
-            $mpd .= sprintf(
-                '      <Representation id="%s" bandwidth="%d" width="%d" height="%d">' . "\n",
-                $quality,
-                intval($preset['video_bitrate']) * 1000,
-                $preset['width'],
-                $preset['height']
-            );
-            $mpd .= sprintf('        <BaseURL>%s/</BaseURL>' . "\n", $quality);
-            $mpd .= '      </Representation>' . "\n";
+        // Set video chunks (stream 0)
+        if (isset($streamChunks[0])) {
+            $chunkInfo['video'] = count($streamChunks[0]);
         }
 
-        $mpd .= '    </AdaptationSet>' . "\n";
-
-        // Audio AdaptationSets (one per language)
-        $audioLangs = [];
-        foreach ($tracks['audio'] as $track) {
-            $lang = $track['language'];
-            if (!isset($audioLangs[$lang])) {
-                $audioLangs[$lang] = [];
+        // Set audio chunks (streams 1+)
+        for ($i = 1; $i <= $audioTrackCount; $i++) {
+            if (isset($streamChunks[$i])) {
+                $chunkInfo['audio'][$i] = [
+                    'count' => count($streamChunks[$i]),
+                    'chunks' => $streamChunks[$i],
+                    'stream_id' => $i
+                ];
+            } else {
+                // Fallback: try to find any audio stream
+                foreach ($streamChunks as $streamId => $chunks) {
+                    if ($streamId > 0 && !isset($chunkInfo['audio'][$streamId])) {
+                        $chunkInfo['audio'][$streamId] = [
+                            'count' => count($chunks),
+                            'chunks' => $chunks,
+                            'stream_id' => $streamId
+                        ];
+                        break;
+                    }
+                }
             }
-            $audioLangs[$lang][] = $track;
         }
 
-        foreach ($audioLangs as $lang => $audioTracks) {
-            $mpd .= sprintf(
-                '    <AdaptationSet mimeType="audio/mp4" codecs="mp4a.40.2" lang="%s">' . "\n",
-                $lang
-            );
-
-            foreach ($audioTracks as $idx => $track) {
-                $mpd .= sprintf(
-                    '      <Representation id="audio_%s_%d" bandwidth="128000">' . "\n",
-                    $lang,
-                    $idx
-                );
-                $mpd .= '      </Representation>' . "\n";
-            }
-
-            $mpd .= '    </AdaptationSet>' . "\n";
-        }
-
-        $mpd .= '  </Period>' . "\n";
-        $mpd .= '</MPD>';
-
-        file_put_contents($outputDir . 'master.mpd', $mpd);
+        return $chunkInfo;
     }
 
     private function encryptChunk($chunkFile, $key, $iv, $chunkIndex)
@@ -595,6 +412,111 @@ class VideoEncryption
         }
 
         return $chunkIV;
+    }
+
+    private function extractSubtitles($inputFile, $outputDir, &$tracks)
+    {
+        if (empty($tracks['subtitles'])) {
+            return;
+        }
+
+        $subsDir = $outputDir . 'subtitles/';
+        if (!is_dir($subsDir))
+            mkdir($subsDir, 0755, true);
+
+        foreach ($tracks['subtitles'] as $idx => $track) {
+            $outputFile = sprintf(
+                '%ssub_%s_%d.vtt',
+                $subsDir,
+                $track['language'],
+                $idx
+            );
+
+            $cmd = sprintf(
+                'ffmpeg -y -i %s -map 0:%d %s 2>&1',
+                escapeshellarg($inputFile),
+                $track['index'],
+                escapeshellarg($outputFile)
+            );
+
+            exec($cmd, $output, $returnCode);
+
+            if ($returnCode === 0) {
+                $tracks['subtitles'][$idx]['file'] = basename($outputFile);
+            }
+        }
+    }
+
+    private function generateMasterMPD($outputDir, $qualities, $tracks, $chunkMap)
+    {
+        // Calculate maximum chunks across all qualities for duration
+        $maxChunks = 0;
+        foreach ($chunkMap as $quality => $chunkInfo) {
+            $qualityMax = $chunkInfo['video'];
+            foreach ($chunkInfo['audio'] as $audioInfo) {
+                $qualityMax = max($qualityMax, $audioInfo['count']);
+            }
+            $maxChunks = max($maxChunks, $qualityMax);
+        }
+
+        $duration = $maxChunks * CHUNK_SIZE_SECONDS;
+
+        $mpd = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+        $mpd .= '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" ';
+        $mpd .= 'mediaPresentationDuration="PT' . $duration . 'S" ';
+        $mpd .= 'minBufferTime="PT2S" profiles="urn:mpeg:dash:profile:isoff-main:2011">' . "\n";
+        $mpd .= '  <Period>' . "\n";
+
+        // Video AdaptationSet
+        $mpd .= '    <AdaptationSet mimeType="video/mp4" codecs="avc1.64001e" ';
+        $mpd .= 'segmentAlignment="true" startWithSAP="1">' . "\n";
+
+        foreach ($qualities as $quality => $preset) {
+            $mpd .= sprintf(
+                '      <Representation id="%s" bandwidth="%d" width="%d" height="%d">' . "\n",
+                $quality,
+                intval($preset['video_bitrate']) * 1000,
+                $preset['width'],
+                $preset['height']
+            );
+            $mpd .= sprintf('        <BaseURL>%s/</BaseURL>' . "\n", $quality);
+            $mpd .= '      </Representation>' . "\n";
+        }
+
+        $mpd .= '    </AdaptationSet>' . "\n";
+
+        // Audio AdaptationSets
+        $audioLangs = [];
+        foreach ($tracks['audio'] as $track) {
+            $lang = $track['language'];
+            if (!isset($audioLangs[$lang])) {
+                $audioLangs[$lang] = [];
+            }
+            $audioLangs[$lang][] = $track;
+        }
+
+        foreach ($audioLangs as $lang => $audioTracks) {
+            $mpd .= sprintf(
+                '    <AdaptationSet mimeType="audio/mp4" codecs="mp4a.40.2" lang="%s">' . "\n",
+                $lang
+            );
+
+            foreach ($audioTracks as $idx => $track) {
+                $mpd .= sprintf(
+                    '      <Representation id="audio_%s_%d" bandwidth="128000">' . "\n",
+                    $lang,
+                    $idx
+                );
+                $mpd .= '      </Representation>' . "\n";
+            }
+
+            $mpd .= '    </AdaptationSet>' . "\n";
+        }
+
+        $mpd .= '  </Period>' . "\n";
+        $mpd .= '</MPD>';
+
+        file_put_contents($outputDir . 'master.mpd', $mpd);
     }
 
     private function saveVideoKey($videoId, $key, $iv)
@@ -671,13 +593,23 @@ class VideoEncryption
 
     private function createVideoInfo($videoId, $inputFile, $title, $description, $processResult, $tracks)
     {
+        // Calculate maximum chunks across all qualities
+        $maxChunks = 0;
+        foreach ($processResult['chunk_map'] as $quality => $chunkInfo) {
+            $qualityMax = $chunkInfo['video'];
+            foreach ($chunkInfo['audio'] as $audioInfo) {
+                $qualityMax = max($qualityMax, $audioInfo['count']);
+            }
+            $maxChunks = max($maxChunks, $qualityMax);
+        }
+
         $info = [
             'id' => $videoId,
             'title' => $title ?: basename($inputFile),
             'description' => $description,
             'original_file' => basename($inputFile),
             'created_at' => date('Y-m-d H:i:s'),
-            'chunk_count' => $processResult['total_chunks'],
+            'chunk_count' => $maxChunks, // Maximum across all streams
             'chunk_size_seconds' => CHUNK_SIZE_SECONDS,
             'encryption' => ENCRYPTION_METHOD,
             'status' => 'encrypted',
@@ -686,11 +618,14 @@ class VideoEncryption
             'subtitle_tracks' => $tracks['subtitles'] ?? [],
             'has_multi_quality' => count($processResult['qualities']) > 1,
             'has_multi_audio' => count($tracks['audio']) > 1,
-            'has_subtitles' => !empty($tracks['subtitles'])
+            'has_subtitles' => !empty($tracks['subtitles']),
+            'chunk_map' => $processResult['chunk_map']
         ];
 
         $infoFile = ENCRYPTED_DIR . $videoId . '/info.json';
         file_put_contents($infoFile, json_encode($info, JSON_PRETTY_PRINT));
+
+        return $info;
     }
 
     public function getVideoKey($videoId)
@@ -730,3 +665,4 @@ class VideoEncryption
         ];
     }
 }
+?>
