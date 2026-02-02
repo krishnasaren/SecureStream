@@ -3,14 +3,19 @@ require_once 'config.php';
 
 class VideoEncryption
 {
-    private $qualityPresets = [
+    /*private $qualityPresets = [
         '144p' => ['video_bitrate' => '120k', 'width' => 256, 'height' => 144, 'audio_bitrate' => '48k'],
         '240p' => ['video_bitrate' => '300k', 'width' => 426, 'height' => 240, 'audio_bitrate' => '64k'],
         '360p' => ['video_bitrate' => '800k', 'width' => 640, 'height' => 360, 'audio_bitrate' => '96k'],
         '480p' => ['video_bitrate' => '1400k', 'width' => 854, 'height' => 480, 'audio_bitrate' => '128k'],
         '720p' => ['video_bitrate' => '2800k', 'width' => 1280, 'height' => 720, 'audio_bitrate' => '192k'],
         '1080p' => ['video_bitrate' => '5000k', 'width' => 1920, 'height' => 1080, 'audio_bitrate' => '256k']
+    ];*/
+
+    private $qualityPresets = [
+        '144p' => ['video_bitrate' => '120k', 'width' => 256, 'height' => 144, 'audio_bitrate' => '48k'],
     ];
+    
 
     public function encryptVideo($videoId, $inputFile, $title = '', $description = '')
     {
@@ -220,7 +225,7 @@ class VideoEncryption
         }
 
         if (empty($selected)) {
-            $selected['360p'] = $this->qualityPresets['360p'];
+            $selected['144p'] = $this->qualityPresets['144p'];
         }
 
         return $selected;
@@ -236,12 +241,18 @@ class VideoEncryption
         }
 
         $audioMapStr = implode(' ', $audioMaps);
+        
+
 
         $codec = $videoInfo['video']['codec_name'] ?? '';
         $pixFmt = $videoInfo['video']['pix_fmt'] ?? '';
         $srcH = $videoInfo['video']['height'] ?? 0;
 
-        $canCopyVideo = ($codec === 'h264' && $pixFmt === 'yuv420p' && abs($preset['height'] - $srcH) <= 8);
+
+        $canCopyVideo = ($codec === 'h264' && $pixFmt === 'yuv420p');
+
+
+        //$canCopyVideo = ($codec === 'h264' && $pixFmt === 'yuv420p' && abs($preset['height'] - $srcH) <= 8);
         $canCopyAudio = false;
 
         if (!empty($videoInfo['audio'])) {
@@ -282,6 +293,7 @@ class VideoEncryption
             'ffmpeg -y -i %s ' .
             '%s %s ' .
             '%s %s %s ' .
+            '-shortest ' .
             '-f dash ' .
             '-seg_duration %d ' .
             '-use_template 1 ' .

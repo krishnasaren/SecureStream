@@ -98,7 +98,7 @@ function requireAuth()
     }
 }
 
-// Get video info with proper chunk analysis
+// Get video info with proper chunk analysis - OPTIMIZED
 function getVideoInfo($videoId)
 {
     $infoFile = ENCRYPTED_DIR . $videoId . '/info.json';
@@ -108,7 +108,7 @@ function getVideoInfo($videoId)
 
     $info = json_decode(file_get_contents($infoFile), true);
 
-    // Dynamically calculate chunk counts per quality and stream
+    // Dynamically calculate chunk counts per quality and stream if not present
     if ($info && !isset($info['chunk_map'])) {
         $info = updateChunkInfo($videoId, $info);
     }
@@ -116,7 +116,7 @@ function getVideoInfo($videoId)
     return $info;
 }
 
-// Update chunk information dynamically
+// Update chunk information dynamically - OPTIMIZED VERSION
 function updateChunkInfo($videoId, $info)
 {
     $videoDir = ENCRYPTED_DIR . $videoId . '/';
@@ -127,37 +127,36 @@ function updateChunkInfo($videoId, $info)
             $qualityDir = $videoDir . $quality . '/';
 
             if (is_dir($qualityDir)) {
-                // Find all chunk files for this quality
-                $videoChunks = glob($qualityDir . 'chunk-stream0-*.enc');
-                $audioChunks = [];
-
-                // Find audio streams (stream 1, 2, etc.)
+                // Find max chunk numbers for each stream (more efficient)
+                $videoChunkCount = 0;
                 $audioStreams = [];
                 $allChunks = glob($qualityDir . 'chunk-stream*.enc');
+
                 foreach ($allChunks as $chunk) {
-                    if (preg_match('/chunk-stream(\d+)-(\d+)\.enc$/', $chunk, $matches)) {
+                    if (preg_match('/chunk-stream(\d+)-(\d+)\.enc$/', basename($chunk), $matches)) {
                         $streamId = (int) $matches[1];
                         $chunkNum = (int) $matches[2];
 
                         if ($streamId === 0) {
-                            $videoChunks[] = $chunk;
+                            $videoChunkCount = max($videoChunkCount, $chunkNum);
                         } else {
                             if (!isset($audioStreams[$streamId])) {
-                                $audioStreams[$streamId] = [];
+                                $audioStreams[$streamId] = 0;
                             }
-                            $audioStreams[$streamId][] = $chunkNum;
+                            $audioStreams[$streamId] = max($audioStreams[$streamId], $chunkNum);
                         }
                     }
                 }
 
+                // Store only counts, not individual chunk numbers
                 $chunkMap[$quality] = [
-                    'video' => count($videoChunks),
+                    'video' => $videoChunkCount,
                     'audio' => []
                 ];
 
-                foreach ($audioStreams as $streamId => $chunks) {
-                    $chunkMap[$quality]['audio'][$streamId] = [
-                        'count' => count(array_unique($chunks)),
+                foreach ($audioStreams as $streamId => $maxChunk) {
+                    $chunkMap[$quality]['audio'][] = [
+                        'count' => $maxChunk,
                         'stream_id' => $streamId
                     ];
                 }
@@ -167,12 +166,14 @@ function updateChunkInfo($videoId, $info)
 
     $info['chunk_map'] = $chunkMap;
 
-    // Calculate max chunks across all streams for this quality
-    $maxChunks = 0;
-    foreach ($chunkMap as $qualityData) {
+    // Calculate max chunks across all streams for each quality
+    $info['quality_max_chunks'] = [];
+    foreach ($chunkMap as $quality => $qualityData) {
         $qualityMax = $qualityData['video'];
-        foreach ($qualityData['audio'] as $audioData) {
-            $qualityMax = max($qualityMax, $audioData['count']);
+        if (isset($qualityData['audio']) && is_array($qualityData['audio'])) {
+            foreach ($qualityData['audio'] as $audioData) {
+                $qualityMax = max($qualityMax, $audioData['count']);
+            }
         }
         $info['quality_max_chunks'][$quality] = $qualityMax;
     }
@@ -281,8 +282,12 @@ function getStreamChunkInfo($videoId, $quality, $streamId)
         ];
     }
 
-    if (isset($info['chunk_map'][$quality]['audio'][$streamId])) {
-        return $info['chunk_map'][$quality]['audio'][$streamId];
+    if (isset($info['chunk_map'][$quality]['audio'])) {
+        foreach ($info['chunk_map'][$quality]['audio'] as $audioInfo) {
+            if ($audioInfo['stream_id'] == $streamId) {
+                return $audioInfo;
+            }
+        }
     }
 
     return null;

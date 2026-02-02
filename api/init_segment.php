@@ -28,7 +28,7 @@ $videoId = $_GET['video_id'] ?? '';
 $track = $_GET['track'] ?? '';
 $quality = $_GET['quality'] ?? '360p';  // ⭐ ADD THIS
 
-if (!hash_equals($_SESSION['init_csrf_token'], $_GET['csrf_token'] ?? '')) {
+if (!hash_equals($_SESSION['csrf_token'], $_GET['csrf_token'] ?? '')) {
     http_response_code(417);
     exit;
 }

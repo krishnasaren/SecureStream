@@ -40,8 +40,7 @@ if (str_contains($videoId, '..') || str_contains($videoId, '/')) {
     exit;
 }
 
-$_SESSION['init_csrf_token'] = $_SESSION['csrf_token'];
-$_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+
 
 try {
     $manager = new SecurePlaybackManager();

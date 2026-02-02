@@ -1949,9 +1949,10 @@ function isMobile()
             if (isExitingPlayer) {
                 return;
             }
+            const currentTime = videoPlayer.currentTime;
 
             try {
-                const currentTime = videoPlayer.currentTime;
+                
                 await videoDecryptor.restart(videoPlayer);
 
                 if (currentTime > 0) {
@@ -1964,8 +1965,22 @@ function isMobile()
 
                 console.log('✅ Recovery successful');
             } catch (error) {
-                console.error('❌ Recovery failed:', error);
-                showError('Unable to recover playback. Please refresh the page.');
+                console.error('❌ Soft Recovery failed:', error);
+
+                try {
+                    videoDecryptor = await videoDecryptor.hardRestart(videoId);
+                    window.videoDecryptor = videoDecryptor;
+                    if (currentTime > 0) {
+                        await seekToTime(currentTime);
+                    }
+
+                    if (playerState.isPlaying) {
+                        await videoPlayer.play();
+                    }
+                } catch (err) {
+                    showError('Unable to recover playback. Please refresh the page.');
+                }
+
             }
         }
 
@@ -2087,7 +2102,7 @@ function isMobile()
             }
 
             try {
-                const success = await window.videoDecryptor.switchAudioTrackWithRetry(index, 2);
+                const success = await window.videoDecryptor.switchAudioTrack(index);
 
                 if (success) {
                     updateAudioMenuActive(index);
@@ -2365,14 +2380,17 @@ function isMobile()
         function isMobileDevice() {
             return /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(navigator.userAgent) ||
                 (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+
         }
 
         function isIOS() {
             return /iphone|ipad|ipod/i.test(navigator.userAgent);
+
         }
 
         function isAndroid() {
             return /android/i.test(navigator.userAgent);
+
         }
 
 
