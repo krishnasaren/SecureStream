@@ -364,6 +364,9 @@ class EnhancedVideoDecryptor {
     // Remove existing buffers if any
     if (this.videoBuffer) {
       try {
+        if(this.isFirefox()){
+          return;
+        }
         this.mediaSource.removeSourceBuffer(this.videoBuffer);
       } catch (e) {
         console.warn("Could not remove video buffer:", e);
@@ -372,6 +375,9 @@ class EnhancedVideoDecryptor {
 
     if (this.audioBuffer) {
       try {
+        if (this.isFirefox()) {
+          return;
+        }
         this.mediaSource.removeSourceBuffer(this.audioBuffer);
       } catch (e) {
         console.warn("Could not remove audio buffer:", e);
@@ -772,6 +778,15 @@ class EnhancedVideoDecryptor {
     if (this.videoBuffer.updating || this.audioBuffer.updating) {
       return;
     }
+    if (
+      this.isSeeking ||
+      this.qualitySwitching ||
+      this.audioSwitching ||
+      this.streamEnded
+    ) {
+      return;
+    }
+
 
     this.processingQueue = true;
 
@@ -794,12 +809,15 @@ class EnhancedVideoDecryptor {
           continue;
         }
 
+        if (!this.canAppend(this.videoBuffer)) return;
+
         // Append video if present
         if (chunk.video && !this.videoBuffer.updating) {
           this.videoBuffer.appendBuffer(chunk.video);
           await this.waitForBufferUpdate(this.videoBuffer);
         }
 
+        if (!this.canAppend(this.audioBuffer)) return;
         // Append audio if present
         if (chunk.audio && !this.audioBuffer.updating) {
           this.audioBuffer.appendBuffer(chunk.audio);
@@ -1032,6 +1050,8 @@ class EnhancedVideoDecryptor {
           if (end < removeEnd) {
             this.videoBuffer.remove(start, end);
             await this.waitForBufferUpdate(this.videoBuffer);
+            await new Promise((r) => setTimeout(r, 0));
+
           }
         }
       }
@@ -1044,6 +1064,8 @@ class EnhancedVideoDecryptor {
           if (end < removeEnd) {
             this.audioBuffer.remove(start, end);
             await this.waitForBufferUpdate(this.audioBuffer);
+            await new Promise((r) => setTimeout(r, 0));
+
           }
         }
       }
@@ -1075,6 +1097,9 @@ class EnhancedVideoDecryptor {
         if (end > start) {
           this.videoBuffer.remove(start, end);
           await this.waitForBufferUpdate(this.videoBuffer);
+          
+          await new Promise((r) => setTimeout(r, 0));
+
         }
       }
 
@@ -1086,6 +1111,9 @@ class EnhancedVideoDecryptor {
         if (end > start) {
           this.audioBuffer.remove(start, end);
           await this.waitForBufferUpdate(this.audioBuffer);
+          
+          await new Promise((r) => setTimeout(r, 0));
+
         }
       }
     } catch (error) {
@@ -1103,6 +1131,8 @@ class EnhancedVideoDecryptor {
         if (end > start) {
           this.audioBuffer.remove(start, end);
           await this.waitForBufferUpdate(this.audioBuffer);
+          await new Promise((r) => setTimeout(r, 0));
+
         }
       }
     } catch (error) {
@@ -1267,6 +1297,14 @@ class EnhancedVideoDecryptor {
     this.startChunkLoader();
 
     console.log("✅ Playback restarted");
+  }
+  canAppend(buffer) {
+    return (
+      buffer &&
+      this.mediaSource &&
+      this.mediaSource.readyState === "open" &&
+      !buffer.updating
+    );
   }
 
   async hardRestart(videoId) {
@@ -1467,17 +1505,26 @@ class EnhancedVideoDecryptor {
       this.bufferCleanupInterval = null;
     }
   }
+  isFirefox() {
+    return navigator.userAgent.toLowerCase().includes("firefox");
+  }
 
   endStream() {
-    if (
-      !this.streamEnded &&
-      this.mediaSource &&
-      this.mediaSource.readyState === "open"
-    ) {
-      this.mediaSource.endOfStream();
+    if (this.streamEnded) return;
+    if (this.isFirefox()) {
+      // Firefox: do NOTHING
       this.streamEnded = true;
-      console.log("🏁 Stream ended");
+      return;
     }
+    if (
+        !this.streamEnded &&
+        this.mediaSource &&
+        this.mediaSource.readyState === "open"
+      ) {
+        this.mediaSource.endOfStream();
+        this.streamEnded = true;
+        console.log("🏁 Stream ended");
+      }
   }
 
   async attemptRecovery() {

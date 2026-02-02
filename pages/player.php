@@ -990,11 +990,19 @@ function isMobile()
                 showLoading('Finalizing...', 90);
 
                 // Wait for metadata
+                //firefoxsame old : loadedmetadata
                 await new Promise((resolve) => {
+                    if (isFirefox()){
+                        videoPlayer.addEventListener('canplay', resolve, {
+                            once: true
+                        });
+                    }
                     videoPlayer.addEventListener('loadedmetadata', resolve, {
-                        once: true
+                            once: true
                     });
                 });
+
+
 
                 showLoading('Ready!', 100);
 
@@ -1216,6 +1224,9 @@ function isMobile()
                 let hasTriggeredFullscreen = false;
 
                 videoPlayer.addEventListener('play', async function autoFullscreen() {
+                    if (hasTriggeredFullscreen) return;
+                    await new Promise(r => setTimeout(r, 500));
+                    if (!videoPlayer.buffered.length) return;
                     if (!hasTriggeredFullscreen &&
                         !document.fullscreenElement &&
                         !document.webkitFullscreenElement &&
@@ -1420,6 +1431,8 @@ function isMobile()
                 return;
             }
             if (!videoPlayer.duration) return;
+            if (playerState.isSeeking) return;
+            playerState.isSeeking = true;
 
             const wasPlaying = !videoPlayer.paused;
             showBuffering();
@@ -1431,7 +1444,12 @@ function isMobile()
                 await videoDecryptor.restart(videoPlayer);
             }
 
-            await videoDecryptor.seek(safeTime);
+
+            try {
+                await videoDecryptor.seek(safeTime);
+            } finally {
+                playerState.isSeeking = false;
+            }
 
             if (wasPlaying) {
                 await videoPlayer.play();
@@ -1952,7 +1970,7 @@ function isMobile()
             const currentTime = videoPlayer.currentTime;
 
             try {
-                
+
                 await videoDecryptor.restart(videoPlayer);
 
                 if (currentTime > 0) {
@@ -2176,6 +2194,7 @@ function isMobile()
         }
 
 
+
         function showAudioChangeNotification(trackName, language, success) {
             const notification = document.getElementById('audio-changed-notification');
 
@@ -2381,6 +2400,9 @@ function isMobile()
             return /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(navigator.userAgent) ||
                 (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
 
+        }
+        function isFirefox() {
+            return navigator.userAgent.toLowerCase().includes("firefox");
         }
 
         function isIOS() {

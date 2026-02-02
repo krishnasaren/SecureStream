@@ -231,7 +231,7 @@ class VideoEncryption
         return $selected;
     }
 
-    private function generateDASHSegments($inputFile, $outputDir, $preset, $audioTracks, $videoInfo, $key, $iv)
+    /*private function generateDASHSegments($inputFile, $outputDir, $preset, $audioTracks, $videoInfo, $key, $iv)
     {
         $videoMap = '-map 0:v:0';
         $audioMaps = [];
@@ -282,7 +282,7 @@ class VideoEncryption
         }
 
         // Audio args
-        if ($canCopyAudio) {
+        if ($canCopyAudio&&false) {
             $audioArgs = '-c:a copy';
         } else {
             $audioArgs = sprintf('-c:a aac -b:a %s -ac 2', $preset['audio_bitrate']);
@@ -294,7 +294,6 @@ class VideoEncryption
             '%s %s ' .
             '%s %s %s ' .
             '-force_key_frames "expr:gte(t,n_forced*%d)" ' .
-            '-reset_timestamps 1 ' .
             '-f dash ' .
             '-seg_duration %d ' .
             '-use_template 1 ' .
@@ -323,7 +322,114 @@ class VideoEncryption
         $chunkInfo = $this->analyzeChunks($outputDir, $key, $iv, count($audioTracks));
 
         return $chunkInfo;
+    }*/
+
+
+    private function generateDASHSegments($inputFile, $outputDir, $preset, $audioTracks, $videoInfo, $key, $iv)
+    {
+        // -----------------------------
+        // Mapping
+        // -----------------------------
+        $videoMap = '-map 0:v:0';
+
+        $audioMapStr = '';
+        foreach ($audioTracks as $i => $track) {
+            $audioMapStr .= " -map 0:a:$i";
+        }
+
+        // -----------------------------
+        // Video codec decision
+        // -----------------------------
+        $codec  = $videoInfo['video']['codec_name'] ?? '';
+        $pixFmt = $videoInfo['video']['pix_fmt'] ?? '';
+        $srcH   = $videoInfo['video']['height'] ?? 0;
+
+        $canCopyVideo = ($codec === 'h264' && $pixFmt === 'yuv420p');
+
+        if ($canCopyVideo) {
+            $videoArgs   = '-c:v copy';
+            $videoFilter = '';
+        } else {
+            $videoArgs = sprintf(
+                '-c:v libx264 -preset ultrafast ' .
+                '-pix_fmt yuv420p ' .              // 🔥 THIS IS THE FIX
+                '-profile:v main -level 3.1 ' .
+                '-b:v %s -maxrate %s -bufsize %s',
+                $preset['video_bitrate'],
+                $preset['video_bitrate'],
+                (intval($preset['video_bitrate']) * 2) . 'k'
+            );
+
+
+            $videoFilter = sprintf(
+                '-vf "scale=%d:%d:force_original_aspect_ratio=decrease,' .
+                    'pad=%d:%d:(ow-iw)/2:(oh-ih)/2"',
+                $preset['width'],
+                $preset['height'],
+                $preset['width'],
+                $preset['height']
+            );
+        }
+
+        // -----------------------------
+        // 🔥 AUDIO — FORCE AAC PER STREAM
+        // -----------------------------
+        $audioArgs = '';
+        foreach ($audioTracks as $i => $track) {
+            $audioArgs .= sprintf(
+                ' -c:a:%d aac -profile:a aac_low -b:a:%d %s -ac 2 -ar 48000',
+                $i,
+                $preset['audio_bitrate'],
+                $preset['audio_bitrate']
+            );
+        }
+
+        // -----------------------------
+        // DASH command
+        // -----------------------------
+        $cmd = sprintf(
+            'ffmpeg -y -i %s ' .
+                '%s %s ' .
+                '%s %s %s ' .
+                '-force_key_frames "expr:gte(t,n_forced*%d)" ' .
+                '-reset_timestamps 1 ' .
+                '-f dash ' .
+                '-seg_duration %d ' .
+                '-use_template 1 ' .
+                '-use_timeline 0 ' .
+                '-init_seg_name "init-stream$RepresentationID$.m4s" ' .
+                '-media_seg_name "chunk-stream$RepresentationID$-$Number%%05d$.m4s" ' .
+                '%s/out.mpd 2>&1',
+            escapeshellarg($inputFile),
+            $videoMap,
+            $audioMapStr,
+            $videoArgs,
+            $videoFilter,
+            $audioArgs,
+            CHUNK_SIZE_SECONDS,
+            CHUNK_SIZE_SECONDS,
+            escapeshellarg(rtrim($outputDir, '/'))
+        );
+
+        exec($cmd, $output, $returnCode);
+
+        if ($returnCode !== 0) {
+            throw new Exception("FFmpeg DASH failed:\n" . implode("\n", $output));
+        }
+
+        // -----------------------------
+        // Analyze + encrypt chunks
+        // -----------------------------
+        $chunkInfo = $this->analyzeChunks(
+            $outputDir,
+            $key,
+            $iv,
+            count($audioTracks)
+        );
+
+        return $chunkInfo;
     }
+
 
     private function analyzeChunks($outputDir, $key, $iv, $audioTrackCount)
     {
