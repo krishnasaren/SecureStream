@@ -1144,7 +1144,7 @@ class EnhancedVideoDecryptor {
       await this.clearBuffers();
 
       // Re-append init segments
-      //await this.appendInitSegments();
+      await this.appendInitSegments();
 
       // Set time
       videoElement.currentTime = timeSeconds;
@@ -1162,6 +1162,89 @@ class EnhancedVideoDecryptor {
         await videoElement.play();
       }
     }
+  }
+
+  async loadSubtitle(trackIndex) {
+    if (trackIndex < 0 || trackIndex >= this.subtitleTracks.length) {
+      return false;
+    }
+
+    const track = this.subtitleTracks[trackIndex];
+    const url = `../api/get_subtitle.php?video_id=${this.videoId}&index=${trackIndex}&token=${this.sessionToken}`;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Failed to load subtitle");
+
+      const vttText = await response.text();
+
+      const videoEl = document.getElementById("secure-video");
+
+      //  Remove ALL existing subtitle tracks
+      const existingTracks = videoEl.querySelectorAll(
+        'track[kind="subtitles"]',
+      );
+      existingTracks.forEach((t) => t.remove());
+
+      //  Create blob URL for VTT content
+      const blob = new Blob([vttText], { type: "text/vtt" });
+      const blobUrl = URL.createObjectURL(blob);
+
+      //  Create new track element
+      const trackEl = document.createElement("track");
+      trackEl.kind = "subtitles";
+      trackEl.label = track.title || track.language;
+      trackEl.srclang = track.language || "en";
+      trackEl.src = blobUrl;
+      trackEl.default = true;
+
+      videoEl.appendChild(trackEl);
+
+      // Wait for track to load
+      await new Promise((resolve) => {
+        trackEl.addEventListener("load", resolve, { once: true });
+      });
+
+      //  Enable the track
+      trackEl.track.mode = "showing";
+
+      this.currentSubtitle = trackIndex;
+
+      console.log(`📝 Loaded subtitle: ${track.title}`);
+
+      this.dispatchEvent("subtitleLoaded", {
+        index: trackIndex,
+        track: track,
+      });
+
+      return true;
+    } catch (error) {
+      console.error("Failed to load subtitle:", error);
+      return false;
+    }
+  }
+
+  disableSubtitles() {
+    const videoEl = document.getElementById("secure-video");
+
+    // Disable all text tracks
+    Array.from(videoEl.textTracks).forEach((t) => {
+      t.mode = "disabled";
+    });
+
+    // Remove track elements
+    const existingTracks = videoEl.querySelectorAll('track[kind="subtitles"]');
+    existingTracks.forEach((t) => t.remove());
+
+    this.currentSubtitle = -1;
+
+    console.log("📝 Subtitles disabled");
+
+    this.dispatchEvent("subtitleDisabled", {});
+  }
+  dispatchEvent(eventName, detail) {
+    const event = new CustomEvent(eventName, { detail });
+    window.dispatchEvent(event);
   }
 
   async restart(videoElement) {
@@ -1274,9 +1357,9 @@ class EnhancedVideoDecryptor {
   async getEphemeralKey(chunkIndex) {
     const response = await fetch(
       `../api/get_chunk_key.php?` +
-      `video_id=${encodeURIComponent(this.videoId)}` +
-      `&chunk_index=${chunkIndex}` +
-      `&session_token=${encodeURIComponent(this.sessionToken)}`,
+        `video_id=${encodeURIComponent(this.videoId)}` +
+        `&chunk_index=${chunkIndex}` +
+        `&session_token=${encodeURIComponent(this.sessionToken)}`,
     );
 
     if (!response.ok) {
@@ -1333,7 +1416,6 @@ class EnhancedVideoDecryptor {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
     }
-    
 
     this.heartbeatInterval = setInterval(async () => {
       try {

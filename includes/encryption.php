@@ -293,7 +293,8 @@ class VideoEncryption
             'ffmpeg -y -i %s ' .
             '%s %s ' .
             '%s %s %s ' .
-            '-shortest ' .
+            '-force_key_frames "expr:gte(t,n_forced*%d)" ' .
+            '-reset_timestamps 1 ' .
             '-f dash ' .
             '-seg_duration %d ' .
             '-use_template 1 ' .
@@ -307,6 +308,7 @@ class VideoEncryption
             $videoArgs,
             $videoFilter,
             $audioArgs,
+            CHUNK_SIZE_SECONDS,
             CHUNK_SIZE_SECONDS,
             escapeshellarg(rtrim($outputDir, '/'))
         );
