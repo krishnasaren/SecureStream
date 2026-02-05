@@ -1017,6 +1017,7 @@ function isMobile()
 
                 hideLoading();
                 playerState.isInitialized = true;
+                showCenterPlayButton();
 
                 // Show security warning briefly
                 showSecurityWarning();
@@ -1069,6 +1070,7 @@ function isMobile()
                 updatePlayButton(true);
                 hideCenterPlayButton();
                 requestWakeLock();
+                resetUITimeout();
             });
 
             videoPlayer.addEventListener('pause', () => {

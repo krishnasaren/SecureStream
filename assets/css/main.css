@@ -514,7 +514,7 @@
     .quality-menu,
     .audio-menu,
     .subtitle-menu {
-        position: fixed;
+        position: absolute;
         bottom: 80px;
         left: 50%;
         transform: translateX(-50%);
@@ -527,9 +527,9 @@
         padding: 8px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
         opacity: 0;
-        pointer-events: none;
+        pointer-events: all ;
         transition: opacity 0.3s, transform 0.3s;
-        z-index: 10005;
+        z-index: 10007;
         -webkit-overflow-scrolling: touch;
     }
 
@@ -694,6 +694,7 @@
 
     .right-controls {
         justify-content: space-around;
+
     }
 }
 
@@ -921,5 +922,264 @@
     0% { opacity: 1; }
     50% { opacity: 0.35; }
     100% { opacity: 1; }
+}
+
+/* ====================================================================
+   MOBILE MENU SCROLLING FIX - COMPLETE SOLUTION
+   ====================================================================
+   
+   This fixes the issue where quality/audio/subtitle menus are not
+   scrollable in mobile landscape mode.
+   
+   ROOT CAUSE:
+   1. Conflicting overflow properties
+   2. Parent containers blocking touch events
+   3. Missing proper positioning in landscape mode
+   4. Insufficient z-index causing overlay blocking
+   
+   SOLUTION:
+   - Force proper overflow on menus
+   - Ensure touch events reach the menu
+   - Proper positioning and sizing for landscape
+   - Higher z-index to prevent overlay blocking
+   ==================================================================== */
+
+/* ============================================
+   STEP 1: BASE MENU STYLES (OVERRIDE EXISTING)
+   ============================================ */
+
+.quality-menu,
+.audio-menu,
+.subtitle-menu {
+    position: absolute;
+    bottom: 50px;
+    right: 0;
+    background: rgba(0, 0, 0, 0.95);
+    border-radius: 8px;
+    padding: 8px 0;
+    min-width: 120px;
+    
+    /* CRITICAL: Force these properties */
+    display: none;
+    overflow-y: auto !important;  /* Force vertical scrolling */
+    overflow-x: hidden !important;
+    max-height: 300px !important;
+    
+    z-index: 10004;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    
+    /* Enable smooth scrolling */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+.quality-menu.show,
+.audio-menu.show,
+.subtitle-menu.show {
+    display: block !important;
+}
+
+/* ============================================
+   STEP 2: MOBILE PORTRAIT MODE
+   ============================================ */
+
+@media (max-width: 768px) and (orientation: portrait) {
+    .quality-menu,
+    .audio-menu,
+    .subtitle-menu {
+        position: absolute !important;
+        bottom: 80px !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%);
+        
+        width: 90% !important;
+        max-width: 300px !important;
+        max-height: 40vh !important;
+        
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        
+        z-index: 10007 !important;
+        
+        /* Critical for touch scrolling */
+        -webkit-overflow-scrolling: touch !important;
+        touch-action: pan-y !important;
+        overscroll-behavior: contain !important;
+    }
+}
+
+/* ============================================
+   STEP 3: MOBILE LANDSCAPE MODE (THE FIX!)
+   ============================================ */
+
+@media (max-width: 768px) and (orientation: landscape) {
+    .quality-menu,
+    .audio-menu,
+    .subtitle-menu {
+        /* CRITICAL: Use fixed positioning */
+        position: fixed !important;
+        
+        /* Center horizontally at bottom */
+        bottom: 70px !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        
+        /* Proper sizing for landscape */
+        width: 85% !important;
+        max-width: 320px !important;
+        max-height: 60vh !important; /* More height available in landscape */
+        
+        /* FORCE scrolling - this is critical */
+        overflow-y: scroll !important; /* Use 'scroll' not 'auto' to force scrollbar */
+        overflow-x: hidden !important;
+        
+        /* Highest z-index to be above everything */
+        z-index: 10010 !important;
+        
+        /* Touch scrolling properties */
+        -webkit-overflow-scrolling: touch !important;
+        touch-action: pan-y !important; /* ONLY allow vertical scrolling */
+        overscroll-behavior-y: contain !important;
+        
+        /* Prevent any interference */
+        pointer-events: auto !important;
+        
+        /* Better visual feedback */
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    }
+    
+    /* Ensure menu items don't interfere with scrolling */
+    .quality-menu .menu-item,
+    .audio-menu .menu-item,
+    .subtitle-menu .menu-item {
+        pointer-events: auto !important;
+        touch-action: manipulation !important;
+        flex-shrink: 0; /* Don't shrink items */
+        min-height: 44px; /* Minimum touch target */
+    }
+}
+
+/* ============================================
+   STEP 4: SCROLLBAR STYLING (VISIBLE FEEDBACK)
+   ============================================ */
+
+/* Make scrollbar visible on mobile for better UX */
+@media (max-width: 768px) {
+    .quality-menu::-webkit-scrollbar,
+    .audio-menu::-webkit-scrollbar,
+    .subtitle-menu::-webkit-scrollbar {
+        width: 8px !important;
+        display: block !important;
+    }
+    
+    .quality-menu::-webkit-scrollbar-track,
+    .audio-menu::-webkit-scrollbar-track,
+    .subtitle-menu::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 4px;
+    }
+    
+    .quality-menu::-webkit-scrollbar-thumb,
+    .audio-menu::-webkit-scrollbar-thumb,
+    .subtitle-menu::-webkit-scrollbar-thumb {
+        background: rgba(102, 126, 234, 0.7);
+        border-radius: 4px;
+        border: 2px solid rgba(0, 0, 0, 0.3);
+    }
+    
+    .quality-menu::-webkit-scrollbar-thumb:active,
+    .audio-menu::-webkit-scrollbar-thumb:active,
+    .subtitle-menu::-webkit-scrollbar-thumb:active {
+        background: rgba(102, 126, 234, 1);
+    }
+}
+
+/* ============================================
+   STEP 5: CONTAINER FIXES
+   ============================================ */
+
+/* Ensure containers don't block touch events */
+@media (max-width: 768px) {
+    .quality-selector-container,
+    .audio-selector-container,
+    .subtitle-selector-container {
+        position: relative;
+        z-index: 10005 !important;
+        pointer-events: auto !important;
+    }
+    
+    /* Ensure the overlay doesn't block menus */
+    .player-overlay {
+        /* Menus should be above overlay */
+        z-index: 2;
+    }
+}
+
+/* ============================================
+   STEP 6: VERY SMALL SCREENS
+   ============================================ */
+
+@media (max-width: 375px) {
+    .quality-menu,
+    .audio-menu,
+    .subtitle-menu {
+        width: 95% !important;
+        max-width: 280px !important;
+    }
+}
+
+/* ============================================
+   STEP 7: ANDROID CHROME SPECIFIC FIX
+   ============================================ */
+
+@supports (-webkit-touch-callout: none) {
+    /* iOS Safari */
+    @media (max-width: 768px) and (orientation: landscape) {
+        .quality-menu,
+        .audio-menu,
+        .subtitle-menu {
+            /* iOS needs this */
+            -webkit-overflow-scrolling: touch !important;
+            overflow-y: scroll !important;
+        }
+    }
+}
+
+/* For Android Chrome */
+@media (max-width: 768px) and (orientation: landscape) {
+    .quality-menu,
+    .audio-menu,
+    .subtitle-menu {
+        /* Force GPU acceleration for smooth scrolling */
+        will-change: scroll-position;
+        transform: translateX(-50%) translateZ(0);
+    }
+}
+
+/* ============================================
+   DEBUG: Visual indicator that fix is active
+   ============================================ */
+
+@media (max-width: 768px) and (orientation: landscape) {
+    .quality-menu.show::before,
+    .audio-menu.show::before,
+    .subtitle-menu.show::before {
+        content: "Swipe to scroll ↕";
+        display: block;
+        text-align: center;
+        padding: 6px;
+        background: rgba(102, 126, 234, 0.3);
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 11px;
+        margin: -8px -8px 4px -8px;
+        border-radius: 8px 8px 0 0;
+        position: sticky;
+        top: -8px;
+        z-index: 10;
+    }
 }
 

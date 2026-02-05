@@ -1,6 +1,6 @@
 /**
  * ============================================
- * ENHANCED SECURE VIDEO DECRYPTOR V2
+ * ENHANCED SECURE VIDEO DECRYPTOR V2 - FIXED
  * ============================================
  *
  * Fixes:
@@ -10,6 +10,11 @@
  * - Correct MediaSource lifecycle
  * - Better error classification
  * - Atomic state transitions
+ * - Multi-range buffer clearing
+ * - Quality switching fixed
+ * - Seek playback resume
+ * - Sequential chunk loading after seek
+ * - Full browser compatibility
  */
 
 class EnhancedVideoDecryptor {
@@ -186,32 +191,47 @@ class EnhancedVideoDecryptor {
       lastAudioChunk: -1,
     };
 
-    // Find audio chunk count - handle both old and new formats
+    // Find audio chunk count - handle BOTH old and new formats
     if (chunkMap.audio) {
       let audioChunkCount = 0;
 
       if (Array.isArray(chunkMap.audio)) {
         // New format: array of audio streams
-        // Find the audio stream matching our track (stream_id = audioTrack + 1)
         const audioInfo = chunkMap.audio.find(
           (a) => a.stream_id === audioTrack + 1,
         );
         if (audioInfo) {
           audioChunkCount = audioInfo.count || 0;
         } else if (chunkMap.audio.length > 0) {
-          // Fallback: use first audio stream
           audioChunkCount = chunkMap.audio[0].count || 0;
         }
       } else if (typeof chunkMap.audio === "object") {
         // Old format: object with stream IDs as keys
         const streamId = audioTrack + 1;
-        if (chunkMap.audio[streamId]) {
-          audioChunkCount = chunkMap.audio[streamId].count || 0;
+        const audioData = chunkMap.audio[streamId];
+
+        if (audioData) {
+          // Check for OLD format with chunks array
+          if (audioData.chunks && Array.isArray(audioData.chunks)) {
+            audioChunkCount = audioData.chunks.length;
+            console.log(
+              `⚠️ OLD FORMAT detected for stream ${streamId}: ${audioChunkCount} chunks in array`,
+            );
+          } else if (audioData.count) {
+            // New format with count
+            audioChunkCount = audioData.count;
+          }
         } else {
-          // Fallback: use first available audio stream
+          // Fallback: use first available stream
           const firstKey = Object.keys(chunkMap.audio)[0];
           if (firstKey && chunkMap.audio[firstKey]) {
-            audioChunkCount = chunkMap.audio[firstKey].count || 0;
+            const firstAudio = chunkMap.audio[firstKey];
+            if (firstAudio.chunks && Array.isArray(firstAudio.chunks)) {
+              audioChunkCount = firstAudio.chunks.length;
+              console.log(`⚠️ OLD FORMAT fallback: ${audioChunkCount} chunks`);
+            } else {
+              audioChunkCount = firstAudio.count || 0;
+            }
           }
         }
       }
@@ -222,7 +242,7 @@ class EnhancedVideoDecryptor {
     console.log(`📊 Quality state initialized:`, this.currentQualityState);
     console.log(`   Video chunks: ${this.currentQualityState.maxVideoChunks}`);
     console.log(`   Audio chunks: ${this.currentQualityState.maxAudioChunks}`);
-    console.log(`   Chunk map:`, chunkMap);
+    console.log(`   Audio track: ${audioTrack}, Stream ID: ${audioTrack + 1}`);
   }
 
   async createPlaybackSession(videoId) {
@@ -361,27 +381,27 @@ class EnhancedVideoDecryptor {
       throw new Error("Audio codec not supported");
     }
 
-    // Remove existing buffers if any
+    // Remove existing buffers if any (Firefox compatibility)
     if (this.videoBuffer) {
       try {
-        if(this.isFirefox()){
-          return;
+        if (!this.isFirefox()) {
+          this.mediaSource.removeSourceBuffer(this.videoBuffer);
         }
-        this.mediaSource.removeSourceBuffer(this.videoBuffer);
       } catch (e) {
         console.warn("Could not remove video buffer:", e);
       }
+      this.videoBuffer = null;
     }
 
     if (this.audioBuffer) {
       try {
-        if (this.isFirefox()) {
-          return;
+        if (!this.isFirefox()) {
+          this.mediaSource.removeSourceBuffer(this.audioBuffer);
         }
-        this.mediaSource.removeSourceBuffer(this.audioBuffer);
       } catch (e) {
         console.warn("Could not remove audio buffer:", e);
       }
+      this.audioBuffer = null;
     }
 
     // Create new buffers
@@ -410,6 +430,14 @@ class EnhancedVideoDecryptor {
     console.log("🎬 Fetching init segments...");
 
     try {
+      // CRITICAL: Reset timestampOffset BEFORE appending init segments
+      if (this.videoBuffer && !this.videoBuffer.updating) {
+        this.videoBuffer.timestampOffset = 0;
+      }
+      if (this.audioBuffer && !this.audioBuffer.updating) {
+        this.audioBuffer.timestampOffset = 0;
+      }
+
       const [vInit, aInit] = await Promise.all([
         this.fetchInitSegment("video", this.currentQuality),
         this.fetchInitSegment(
@@ -466,7 +494,7 @@ class EnhancedVideoDecryptor {
   }
 
   // ================================================
-  // CHUNK LOADING & STREAMING
+  // CHUNK LOADING & STREAMING - FIXED
   // ================================================
 
   startChunkLoader() {
@@ -481,6 +509,18 @@ class EnhancedVideoDecryptor {
     }, loadInterval);
 
     console.log("⚙️ Chunk loader started");
+  }
+
+  stopChunkLoader() {
+    if (this.loaderInterval) {
+      clearInterval(this.loaderInterval);
+      this.loaderInterval = null;
+    }
+
+    if (this.bufferCleanupInterval) {
+      clearInterval(this.bufferCleanupInterval);
+      this.bufferCleanupInterval = null;
+    }
   }
 
   async manageChunkLoading() {
@@ -509,25 +549,53 @@ class EnhancedVideoDecryptor {
       ? this.config.chunkLoadAhead * this.config.mobileBufferMultiplier
       : this.config.chunkLoadAhead;
 
+    // FIXED: Sequential chunk loading
     if (chunksAhead < targetChunksAhead) {
       const chunksToLoad = Math.ceil(targetChunksAhead - chunksAhead);
+      const maxVideoChunks = this.currentQualityState.maxVideoChunks;
+      const maxAudioChunks = this.currentQualityState.maxAudioChunks;
 
-      for (let i = 0; i < chunksToLoad; i++) {
-        const chunkIndex = currentChunk + chunksAhead + i;
+      let chunksLoaded = 0;
+      let checkIndex = currentChunk;
 
-        // Check bounds
-        if (
-          chunkIndex >= this.currentQualityState.maxVideoChunks &&
-          chunkIndex >= this.currentQualityState.maxAudioChunks
-        ) {
+      while (chunksLoaded < chunksToLoad) {
+        // Check bounds - stop only if BOTH streams exhausted
+        const videoExhausted = checkIndex >= maxVideoChunks;
+        const audioExhausted = checkIndex >= maxAudioChunks;
+
+        if (videoExhausted && audioExhausted) {
           if (!this.streamEnded) {
             this.endStream();
           }
           break;
         }
 
-        // Load chunk
-        await this.loadChunkPair(chunkIndex);
+        // Check if chunk already loaded
+        const videoLoaded = this.isChunkProcessed(
+          "video",
+          this.currentQuality,
+          0,
+          checkIndex,
+        );
+        const audioLoaded = this.isChunkProcessed(
+          "audio",
+          this.currentQuality,
+          this.currentAudioTrack,
+          checkIndex,
+        );
+
+        // Only load if not already loaded
+        if (!videoLoaded || !audioLoaded) {
+          await this.loadChunkPair(checkIndex);
+          chunksLoaded++;
+        }
+
+        checkIndex++;
+
+        // Safety limit to prevent infinite loops
+        if (checkIndex > currentChunk + targetChunksAhead + 10) {
+          break;
+        }
       }
     }
 
@@ -787,7 +855,6 @@ class EnhancedVideoDecryptor {
       return;
     }
 
-
     this.processingQueue = true;
 
     try {
@@ -818,6 +885,7 @@ class EnhancedVideoDecryptor {
         }
 
         if (!this.canAppend(this.audioBuffer)) return;
+
         // Append audio if present
         if (chunk.audio && !this.audioBuffer.updating) {
           this.audioBuffer.appendBuffer(chunk.audio);
@@ -860,8 +928,17 @@ class EnhancedVideoDecryptor {
     }, 50);
   }
 
+  canAppend(buffer) {
+    return (
+      buffer &&
+      this.mediaSource &&
+      this.mediaSource.readyState === "open" &&
+      !buffer.updating
+    );
+  }
+
   // ================================================
-  // QUALITY SWITCHING
+  // QUALITY SWITCHING - FIXED
   // ================================================
 
   async switchQuality(newQuality) {
@@ -880,6 +957,7 @@ class EnhancedVideoDecryptor {
     const videoElement = document.getElementById("secure-video");
     const currentTime = videoElement.currentTime;
     const wasPlaying = !videoElement.paused;
+    const oldQuality = this.currentQuality;
 
     try {
       // Pause playback
@@ -901,23 +979,22 @@ class EnhancedVideoDecryptor {
       this.chunkQueue = [];
       this.processingQueue = false;
 
-      // Clear buffers
-      await this.clearBuffers();
-
-      // Update quality
-      const oldQuality = this.currentQuality;
+      // Update quality BEFORE clearing buffers
       this.currentQuality = newQuality;
 
       // Initialize new quality state
       await this.initializeQualityState(newQuality, this.currentAudioTrack);
 
-      // Recreate source buffers
-      await this.initSourceBuffers();
+      // Clear buffers completely
+      await this.clearBuffers();
 
-      // Re-fetch init segments
+      // CRITICAL FIX: Recreate source buffers for quality switch
+      //await this.initSourceBuffers();
+
+      // Re-append init segments with new quality
       await this.appendInitSegments();
 
-      // Seek to current position
+      // Set video time
       videoElement.currentTime = currentTime;
 
       // Restart loader
@@ -925,10 +1002,19 @@ class EnhancedVideoDecryptor {
 
       // Resume playback
       if (wasPlaying) {
-        await videoElement.play();
+        // Wait a bit for chunks to load
+        setTimeout(async () => {
+          try {
+            await videoElement.play();
+            console.log(`✅ Quality switched to ${newQuality} and playing`);
+          } catch (err) {
+            console.warn("Failed to resume playback:", err);
+          }
+        }, 500);
+      } else {
+        console.log(`✅ Quality switched to ${newQuality}`);
       }
 
-      console.log(`✅ Quality switched to ${newQuality}`);
       return true;
     } catch (error) {
       console.error("Quality switch failed:", error);
@@ -980,11 +1066,10 @@ class EnhancedVideoDecryptor {
 
       // Clear audio from queue
       this.chunkQueue = this.chunkQueue.filter(
-        (c) => c.audioTrack === this.currentAudioTrack,
+        (c) => c.audioTrack !== this.currentAudioTrack,
       );
 
       // Update track
-
       this.currentAudioTrack = trackIndex;
 
       // Update quality state
@@ -1006,7 +1091,13 @@ class EnhancedVideoDecryptor {
       this.startChunkLoader();
 
       if (wasPlaying) {
-        await videoElement.play();
+        setTimeout(async () => {
+          try {
+            await videoElement.play();
+          } catch (err) {
+            console.warn("Failed to resume playback:", err);
+          }
+        }, 300);
       }
 
       console.log(`✅ Audio track switched to ${trackIndex}`);
@@ -1021,7 +1112,7 @@ class EnhancedVideoDecryptor {
   }
 
   // ================================================
-  // BUFFER MANAGEMENT
+  // BUFFER MANAGEMENT - FIXED
   // ================================================
 
   getBufferedAhead(videoElement) {
@@ -1051,7 +1142,6 @@ class EnhancedVideoDecryptor {
             this.videoBuffer.remove(start, end);
             await this.waitForBufferUpdate(this.videoBuffer);
             await new Promise((r) => setTimeout(r, 0));
-
           }
         }
       }
@@ -1065,7 +1155,6 @@ class EnhancedVideoDecryptor {
             this.audioBuffer.remove(start, end);
             await this.waitForBufferUpdate(this.audioBuffer);
             await new Promise((r) => setTimeout(r, 0));
-
           }
         }
       }
@@ -1087,53 +1176,76 @@ class EnhancedVideoDecryptor {
     }, this.config.bufferCheckInterval);
   }
 
+  // FIXED: Clear ALL buffered ranges and reset timestampOffset
   async clearBuffers() {
     try {
-      if (this.videoBuffer && this.videoBuffer.buffered.length) {
-        const start = this.videoBuffer.buffered.start(0);
-        const end = this.videoBuffer.buffered.end(
-          this.videoBuffer.buffered.length - 1,
-        );
-        if (end > start) {
-          this.videoBuffer.remove(start, end);
-          await this.waitForBufferUpdate(this.videoBuffer);
-          
-          await new Promise((r) => setTimeout(r, 0));
-
+      if (this.videoBuffer && this.videoBuffer.buffered.length > 0) {
+        // Remove all buffered ranges
+        for (let i = this.videoBuffer.buffered.length - 1; i >= 0; i--) {
+          const start = this.videoBuffer.buffered.start(i);
+          const end = this.videoBuffer.buffered.end(i);
+          if (end > start) {
+            console.log(
+              `🗑️ Clearing video buffer range ${i}: ${start.toFixed(2)}s - ${end.toFixed(2)}s`,
+            );
+            this.videoBuffer.remove(start, end);
+            await this.waitForBufferUpdate(this.videoBuffer);
+          }
         }
       }
 
-      if (this.audioBuffer && this.audioBuffer.buffered.length) {
-        const start = this.audioBuffer.buffered.start(0);
-        const end = this.audioBuffer.buffered.end(
-          this.audioBuffer.buffered.length - 1,
-        );
-        if (end > start) {
-          this.audioBuffer.remove(start, end);
-          await this.waitForBufferUpdate(this.audioBuffer);
-          
-          await new Promise((r) => setTimeout(r, 0));
-
+      if (this.audioBuffer && this.audioBuffer.buffered.length > 0) {
+        // Remove all buffered ranges
+        for (let i = this.audioBuffer.buffered.length - 1; i >= 0; i--) {
+          const start = this.audioBuffer.buffered.start(i);
+          const end = this.audioBuffer.buffered.end(i);
+          if (end > start) {
+            console.log(
+              `🗑️ Clearing audio buffer range ${i}: ${start.toFixed(2)}s - ${end.toFixed(2)}s`,
+            );
+            this.audioBuffer.remove(start, end);
+            await this.waitForBufferUpdate(this.audioBuffer);
+          }
         }
+      }
+
+      // CRITICAL: Reset timestampOffset to 0 after clearing
+      if (this.videoBuffer && !this.videoBuffer.updating) {
+        this.videoBuffer.timestampOffset = 0;
+        console.log("🔄 Video timestampOffset reset to 0");
+      }
+
+      if (this.audioBuffer && !this.audioBuffer.updating) {
+        this.audioBuffer.timestampOffset = 0;
+        console.log("🔄 Audio timestampOffset reset to 0");
       }
     } catch (error) {
       console.warn("Buffer clear warning:", error);
     }
   }
 
+  // FIXED: Clear all audio buffer ranges and reset timestampOffset
   async clearAudioBuffer() {
     try {
-      if (this.audioBuffer && this.audioBuffer.buffered.length) {
-        const start = this.audioBuffer.buffered.start(0);
-        const end = this.audioBuffer.buffered.end(
-          this.audioBuffer.buffered.length - 1,
-        );
-        if (end > start) {
-          this.audioBuffer.remove(start, end);
-          await this.waitForBufferUpdate(this.audioBuffer);
-          await new Promise((r) => setTimeout(r, 0));
-
+      if (this.audioBuffer && this.audioBuffer.buffered.length > 0) {
+        // Remove all buffered ranges
+        for (let i = this.audioBuffer.buffered.length - 1; i >= 0; i--) {
+          const start = this.audioBuffer.buffered.start(i);
+          const end = this.audioBuffer.buffered.end(i);
+          if (end > start) {
+            console.log(
+              `🗑️ Clearing audio buffer range ${i}: ${start.toFixed(2)}s - ${end.toFixed(2)}s`,
+            );
+            this.audioBuffer.remove(start, end);
+            await this.waitForBufferUpdate(this.audioBuffer);
+          }
         }
+      }
+
+      // CRITICAL: Reset timestampOffset to 0 after clearing
+      if (this.audioBuffer && !this.audioBuffer.updating) {
+        this.audioBuffer.timestampOffset = 0;
+        console.log("🔄 Audio timestampOffset reset to 0");
       }
     } catch (error) {
       console.warn("Audio buffer clear warning:", error);
@@ -1141,7 +1253,7 @@ class EnhancedVideoDecryptor {
   }
 
   // ================================================
-  // SEEKING & PLAYBACK CONTROL
+  // SEEKING & PLAYBACK CONTROL - FIXED
   // ================================================
 
   async seek(timeSeconds) {
@@ -1155,11 +1267,14 @@ class EnhancedVideoDecryptor {
     const videoElement = document.getElementById("secure-video");
     const chunkDuration = this.videoInfo.chunk_size_seconds;
     const wasPlaying = !videoElement.paused;
+    let bufferEmpty = false;
+    let seekMismatch = false;
 
     try {
       if (wasPlaying) {
         videoElement.pause();
       }
+
       this.stopChunkLoader();
 
       this.fetchController.abort();
@@ -1179,18 +1294,114 @@ class EnhancedVideoDecryptor {
       // Set time
       videoElement.currentTime = timeSeconds;
 
-      // Restart loader
-      setTimeout(() => {
+      // Restart loader and resume playback
+      const seekTimeoutInterval = setTimeout(async () => {
+        console.log(
+          "🔄 Seek timeout callback started, wasPlaying:",
+          wasPlaying,
+        );
         this.startChunkLoader();
+        this.isSeeking = false;
+
+        // Resume playback if it was playing before
+        if (wasPlaying) {
+          console.log("⏳ Waiting for initial buffer...");
+          // Wait for chunks to load
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          console.log("▶️ Attempting to resume playback...");
+
+          // Debug buffer state
+          const videoBuffer = this.mediaSource.sourceBuffers[0];
+          const audioBuffer = this.mediaSource.sourceBuffers[1];
+
+          console.log(
+            "📊 Video currentTime:",
+            videoElement.currentTime.toFixed(2),
+          );
+          console.log("📊 Video paused:", videoElement.paused);
+          console.log("📊 Video readyState:", videoElement.readyState);
+
+
+          if (videoBuffer && videoBuffer.buffered.length > 0) {
+            console.log(
+              "📊 Video buffer:",
+              videoBuffer.buffered.start(0).toFixed(2),
+              "-",
+              videoBuffer.buffered
+                .end(videoBuffer.buffered.length - 1)
+                .toFixed(2),
+            );
+            if (
+              videoElement.currentTime.toFixed(2) <
+                videoBuffer.buffered.start(0).toFixed(2) ||
+              videoElement.currentTime.toFixed(2) >
+                videoBuffer.buffered
+                  .end(videoBuffer.buffered.length - 1)
+                  .toFixed(2)
+            ){
+              seekMismatch = true;
+            }
+          } else {
+            console.log("📊 Video buffer: EMPTY");
+            bufferEmpty = true;
+          }
+
+          if (audioBuffer && audioBuffer.buffered.length > 0) {
+            console.log(
+              "📊 Audio buffer:",
+              audioBuffer.buffered.start(0).toFixed(2),
+              "-",
+              audioBuffer.buffered
+                .end(audioBuffer.buffered.length - 1)
+                .toFixed(2),
+            );
+            if (
+              videoElement.currentTime.toFixed(2) <
+                audioBuffer.buffered.start(0).toFixed(2) ||
+              videoElement.currentTime.toFixed(2) >
+                audioBuffer.buffered
+                  .end(videoBuffer.buffered.length - 1)
+                  .toFixed(2)
+            ) {
+              seekMismatch = true;
+            }
+          } else {
+            console.log("📊 Audio buffer: EMPTY");
+            bufferEmpty = true;
+          }
+
+          if(bufferEmpty || seekMismatch){
+            console.log("Seek Mismatch or Buffer Empty Operations");
+            clearInterval(seekTimeoutInterval);
+            await this.attemptRecovery();
+            return;
+          }
+
+          try {
+            await videoElement.play();
+            console.log("✅ Playback resumed after seek");
+
+            // Double-check after play
+            setTimeout(() => {
+              console.log(
+                "🔍 After play - paused:",
+                videoElement.paused,
+                "time:",
+                videoElement.currentTime.toFixed(2),
+              );
+            }, 100);
+          } catch (err) {
+            console.error("❌ Resume play failed:", err);
+          }
+        } else {
+          console.log("⏸️ Not resuming - video was paused before seek");
+        }
       }, 100);
     } catch (error) {
       console.error("Seek failed:", error);
-      await this.attemptRecovery();
-    } finally {
       this.isSeeking = false;
-      if (wasPlaying) {
-        await videoElement.play();
-      }
+      await this.attemptRecovery();
     }
   }
 
@@ -1207,20 +1418,19 @@ class EnhancedVideoDecryptor {
       if (!response.ok) throw new Error("Failed to load subtitle");
 
       const vttText = await response.text();
-
       const videoEl = document.getElementById("secure-video");
 
-      //  Remove ALL existing subtitle tracks
+      // Remove ALL existing subtitle tracks
       const existingTracks = videoEl.querySelectorAll(
         'track[kind="subtitles"]',
       );
       existingTracks.forEach((t) => t.remove());
 
-      //  Create blob URL for VTT content
+      // Create blob URL for VTT content
       const blob = new Blob([vttText], { type: "text/vtt" });
       const blobUrl = URL.createObjectURL(blob);
 
-      //  Create new track element
+      // Create new track element
       const trackEl = document.createElement("track");
       trackEl.kind = "subtitles";
       trackEl.label = track.title || track.language;
@@ -1235,17 +1445,12 @@ class EnhancedVideoDecryptor {
         trackEl.addEventListener("load", resolve, { once: true });
       });
 
-      //  Enable the track
+      // Enable the track
       trackEl.track.mode = "showing";
-
       this.currentSubtitle = trackIndex;
 
       console.log(`📝 Loaded subtitle: ${track.title}`);
-
-      this.dispatchEvent("subtitleLoaded", {
-        index: trackIndex,
-        track: track,
-      });
+      this.dispatchEvent("subtitleLoaded", { index: trackIndex, track: track });
 
       return true;
     } catch (error) {
@@ -1267,11 +1472,10 @@ class EnhancedVideoDecryptor {
     existingTracks.forEach((t) => t.remove());
 
     this.currentSubtitle = -1;
-
     console.log("📝 Subtitles disabled");
-
     this.dispatchEvent("subtitleDisabled", {});
   }
+
   dispatchEvent(eventName, detail) {
     const event = new CustomEvent(eventName, { detail });
     window.dispatchEvent(event);
@@ -1281,7 +1485,6 @@ class EnhancedVideoDecryptor {
     console.log("🔄 Restarting playback");
 
     this.stopChunkLoader();
-
     this.fetchController.abort();
     this.fetchController = new AbortController();
 
@@ -1297,14 +1500,6 @@ class EnhancedVideoDecryptor {
     this.startChunkLoader();
 
     console.log("✅ Playback restarted");
-  }
-  canAppend(buffer) {
-    return (
-      buffer &&
-      this.mediaSource &&
-      this.mediaSource.readyState === "open" &&
-      !buffer.updating
-    );
   }
 
   async hardRestart(videoId) {
@@ -1343,6 +1538,10 @@ class EnhancedVideoDecryptor {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
       navigator.userAgent,
     );
+  }
+
+  isFirefox() {
+    return navigator.userAgent.toLowerCase().includes("firefox");
   }
 
   selectBestQuality() {
@@ -1461,10 +1660,12 @@ class EnhancedVideoDecryptor {
         if (!videoElement || videoElement.paused || videoElement.ended) {
           return;
         }
+
         const currentTime =
           videoElement && isFinite(videoElement.currentTime)
             ? videoElement.currentTime
             : 0;
+
         this.heartbeatAbort?.abort();
         this.heartbeatAbort = new AbortController();
 
@@ -1494,37 +1695,26 @@ class EnhancedVideoDecryptor {
   // CLEANUP & RECOVERY
   // ================================================
 
-  stopChunkLoader() {
-    if (this.loaderInterval) {
-      clearInterval(this.loaderInterval);
-      this.loaderInterval = null;
-    }
-
-    if (this.bufferCleanupInterval) {
-      clearInterval(this.bufferCleanupInterval);
-      this.bufferCleanupInterval = null;
-    }
-  }
-  isFirefox() {
-    return navigator.userAgent.toLowerCase().includes("firefox");
-  }
-
   endStream() {
     if (this.streamEnded) return;
+
+    // Firefox: do NOT call endOfStream (causes issues)
     if (this.isFirefox()) {
-      // Firefox: do NOTHING
       this.streamEnded = true;
+      console.log("🏁 Stream ended (Firefox - no endOfStream call)");
       return;
     }
-    if (
-        !this.streamEnded &&
-        this.mediaSource &&
-        this.mediaSource.readyState === "open"
-      ) {
+
+    // Other browsers: call endOfStream
+    if (this.mediaSource && this.mediaSource.readyState === "open") {
+      try {
         this.mediaSource.endOfStream();
         this.streamEnded = true;
         console.log("🏁 Stream ended");
+      } catch (e) {
+        console.warn("endOfStream failed:", e);
       }
+    }
   }
 
   async attemptRecovery() {
@@ -1570,7 +1760,9 @@ class EnhancedVideoDecryptor {
 
     if (this.mediaSource && this.mediaSource.readyState === "open") {
       try {
-        this.mediaSource.endOfStream();
+        if (!this.isFirefox()) {
+          this.mediaSource.endOfStream();
+        }
       } catch (e) {
         // Ignore
       }

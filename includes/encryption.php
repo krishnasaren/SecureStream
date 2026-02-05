@@ -3,18 +3,16 @@ require_once 'config.php';
 
 class VideoEncryption
 {
-    /*private $qualityPresets = [
+    private $qualityPresets = [
         '144p' => ['video_bitrate' => '120k', 'width' => 256, 'height' => 144, 'audio_bitrate' => '48k'],
         '240p' => ['video_bitrate' => '300k', 'width' => 426, 'height' => 240, 'audio_bitrate' => '64k'],
         '360p' => ['video_bitrate' => '800k', 'width' => 640, 'height' => 360, 'audio_bitrate' => '96k'],
         '480p' => ['video_bitrate' => '1400k', 'width' => 854, 'height' => 480, 'audio_bitrate' => '128k'],
         '720p' => ['video_bitrate' => '2800k', 'width' => 1280, 'height' => 720, 'audio_bitrate' => '192k'],
         '1080p' => ['video_bitrate' => '5000k', 'width' => 1920, 'height' => 1080, 'audio_bitrate' => '256k']
-    ];*/
-
-    private $qualityPresets = [
-        '144p' => ['video_bitrate' => '120k', 'width' => 256, 'height' => 144, 'audio_bitrate' => '48k'],
     ];
+
+    
     
 
     public function encryptVideo($videoId, $inputFile, $title = '', $description = '')
@@ -219,13 +217,14 @@ class VideoEncryption
         $selected = [];
 
         foreach ($this->qualityPresets as $quality => $preset) {
-            if ($preset['height'] <= $sourceHeight) {
+            //Allow some leeway for aspect ratio differences +16px
+            if ($preset['height'] <= ($sourceHeight+16) ) {
                 $selected[$quality] = $preset;
             }
         }
 
         if (empty($selected)) {
-            $selected['144p'] = $this->qualityPresets['144p'];
+            $selected['360p'] = $this->qualityPresets['360p'];
         }
 
         return $selected;

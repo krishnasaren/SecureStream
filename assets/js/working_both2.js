@@ -1,20 +1,20 @@
 /**
  * ============================================
- * ENHANCED SECURE VIDEO DECRYPTOR V3 - FINAL
+ * ENHANCED SECURE VIDEO DECRYPTOR V2 - FIXED
  * ============================================
  *
- * Major Fixes:
- * - Intelligent adaptive bitrate control (ABR)
- * - Bandwidth-aware buffer management
- * - Proper fetch abort control (prevents aborts during playback)
- * - Sequential chunk prefetch optimization
- * - Reduced network overhead (batch requests, compression hints)
- * - Smart buffer cleanup to save memory
- * - Faster seek recovery with predictive loading
- * - Better error resilience with smart retry backoff
- * - Mobile-optimized for low bandwidth
- * - Eliminated redundant chunk re-fetching
- * - Proper playback resumption after interrupts
+ * Fixes:
+ * - Quality-scoped chunk tracking
+ * - Proper retry management
+ * - Independent audio/video handling
+ * - Correct MediaSource lifecycle
+ * - Better error classification
+ * - Atomic state transitions
+ * - Multi-range buffer clearing
+ * - Quality switching fixed
+ * - Seek playback resume
+ * - Sequential chunk loading after seek
+ * - Full browser compatibility
  */
 
 class EnhancedVideoDecryptor {
@@ -24,13 +24,10 @@ class EnhancedVideoDecryptor {
     this.videoInfo = null;
     this.sessionToken = null;
 
-    // Quality management with adaptive bitrate
+    // Quality management
     this.availableQualities = [];
     this.currentQuality = "360p";
-    this.qualityChunkMap = {};
-    this.estimatedBandwidth = 5000000; // Start with 5Mbps
-    this.bandwidthSampleSize = 0;
-    this.lastQualityAdjustment = 0;
+    this.qualityChunkMap = {}; // Map of quality -> {video: count, audio: [...]}
 
     // Audio management
     this.audioTracks = [];
@@ -40,16 +37,15 @@ class EnhancedVideoDecryptor {
     this.subtitleTracks = [];
     this.currentSubtitle = -1;
 
-    // Chunk tracking - Quality scoped with load status
+    // Chunk tracking - QUALITY SCOPED
     this.chunkState = {
-      video: new Map(),
-      audio: new Map(),
+      video: new Map(), // key: "quality:index" -> state
+      audio: new Map(), // key: "quality:track:index" -> state
     };
 
-    // Chunk queues with priority
+    // Chunk queues - with quality metadata
     this.chunkQueue = [];
     this.processingQueue = false;
-    this.prefetchQueue = [];
 
     // MediaSource components
     this.mediaSource = null;
@@ -63,7 +59,6 @@ class EnhancedVideoDecryptor {
     this.qualitySwitching = false;
     this.audioSwitching = false;
     this.streamEnded = false;
-    this.abortPlayback = false; // NEW: Proper abort flag
 
     // Quality-specific state
     this.currentQualityState = {
@@ -80,44 +75,34 @@ class EnhancedVideoDecryptor {
     this.loaderInterval = null;
     this.heartbeatInterval = null;
     this.bufferCleanupInterval = null;
-    this.bandwidthMonitorInterval = null;
 
-    // Configuration with bandwidth awareness
+    // Configuration
     this.config = {
-      maxBufferAhead: 50,
+      maxBufferAhead: 30,
       maxBufferBehind: 10,
       chunkLoadAhead: 3,
-      maxRetries: 2,
-      retryDelay: 500,
+      maxRetries: 3,
+      retryDelay: 1000,
       heartbeatInterval: 30000,
-      bufferCheckInterval: 1000,
-      bandwidthCheckInterval: 5000,
-      mobileBufferMultiplier: 0.7,
-      lowBandwidthThreshold: 1500000, // 1.5Mbps
-      minChunkDuration: 2, // Load minimum 2 chunks
-      seekPrefetchDistance: 5, // Chunks to prefetch around seek point
+      bufferCheckInterval: 500,
+      mobileBufferMultiplier: 1.5,
     };
 
-    // Statistics for bandwidth calculation
+    // Statistics
     this.stats = {
       chunksLoaded: 0,
       chunksFailed: 0,
       bytesLoaded: 0,
-      bytesLoadedThisInterval: 0,
       switchAttempts: 0,
       recoveryAttempts: 0,
-      lastBandwidthUpdate: Date.now(),
-      qualitySwitches: [],
     };
 
     this.heartBeatRetry = 0;
 
     // Mobile detection
     this.isMobile = this.detectMobile();
-    this.isLowBandwidth = false;
-    this.isSlowNetwork = false;
 
-    console.log("🎬 EnhancedVideoDecryptor V3 initialized");
+    console.log("🎬 EnhancedVideoDecryptor V2 initialized");
   }
 
   // ================================================
@@ -155,11 +140,11 @@ class EnhancedVideoDecryptor {
       this.qualityChunkMap = videoInfo.chunk_map || {};
 
       console.log(
-        "🗺️ Available qualities:",
-        this.availableQualities.join(", "),
+        "🗺️ Raw chunk map:",
+        JSON.stringify(this.qualityChunkMap, null, 2),
       );
 
-      // Auto-select best quality based on bandwidth
+      // Auto-select best quality
       this.currentQuality = this.selectBestQuality();
 
       // Initialize quality state
@@ -174,15 +159,13 @@ class EnhancedVideoDecryptor {
         currentQuality: this.currentQuality,
         videoChunks: this.currentQualityState.maxVideoChunks,
         audioChunks: this.currentQualityState.maxAudioChunks,
-        estimatedBandwidth: this.estimatedBandwidth,
       });
 
-      // Start heartbeat and bandwidth monitoring
+      // Start heartbeat
       this.startHeartbeat();
-      this.startBandwidthMonitor();
 
       this.isInitialized = true;
-      console.log("✅ Enhanced decryptor V3 initialized");
+      console.log("✅ Enhanced decryptor initialized");
 
       return true;
     } catch (error) {
@@ -208,11 +191,12 @@ class EnhancedVideoDecryptor {
       lastAudioChunk: -1,
     };
 
-    // Find audio chunk count - handle both formats
+    // Find audio chunk count - handle BOTH old and new formats
     if (chunkMap.audio) {
       let audioChunkCount = 0;
 
       if (Array.isArray(chunkMap.audio)) {
+        // New format: array of audio streams
         const audioInfo = chunkMap.audio.find(
           (a) => a.stream_id === audioTrack + 1,
         );
@@ -222,24 +206,29 @@ class EnhancedVideoDecryptor {
           audioChunkCount = chunkMap.audio[0].count || 0;
         }
       } else if (typeof chunkMap.audio === "object") {
+        // Old format: object with stream IDs as keys
         const streamId = audioTrack + 1;
         const audioData = chunkMap.audio[streamId];
 
         if (audioData) {
+          // Check for OLD format with chunks array
           if (audioData.chunks && Array.isArray(audioData.chunks)) {
             audioChunkCount = audioData.chunks.length;
             console.log(
-              `ℹ️ Old format detected for stream ${streamId}: ${audioChunkCount} chunks`,
+              `⚠️ OLD FORMAT detected for stream ${streamId}: ${audioChunkCount} chunks in array`,
             );
           } else if (audioData.count) {
+            // New format with count
             audioChunkCount = audioData.count;
           }
         } else {
+          // Fallback: use first available stream
           const firstKey = Object.keys(chunkMap.audio)[0];
           if (firstKey && chunkMap.audio[firstKey]) {
             const firstAudio = chunkMap.audio[firstKey];
             if (firstAudio.chunks && Array.isArray(firstAudio.chunks)) {
               audioChunkCount = firstAudio.chunks.length;
+              console.log(`⚠️ OLD FORMAT fallback: ${audioChunkCount} chunks`);
             } else {
               audioChunkCount = firstAudio.count || 0;
             }
@@ -250,9 +239,10 @@ class EnhancedVideoDecryptor {
       this.currentQualityState.maxAudioChunks = audioChunkCount;
     }
 
-    console.log(
-      `✅ Quality state initialized: ${quality} (${this.currentQualityState.maxVideoChunks} video, ${this.currentQualityState.maxAudioChunks} audio chunks)`,
-    );
+    console.log(`📊 Quality state initialized:`, this.currentQualityState);
+    console.log(`   Video chunks: ${this.currentQualityState.maxVideoChunks}`);
+    console.log(`   Audio chunks: ${this.currentQualityState.maxAudioChunks}`);
+    console.log(`   Audio track: ${audioTrack}, Stream ID: ${audioTrack + 1}`);
   }
 
   async createPlaybackSession(videoId) {
@@ -329,6 +319,7 @@ class EnhancedVideoDecryptor {
   }
 
   clearQualityChunks(quality) {
+    // Remove all chunks for a specific quality
     for (const [key] of this.chunkState.video) {
       if (key.startsWith(`${quality}:`)) {
         this.chunkState.video.delete(key);
@@ -343,103 +334,6 @@ class EnhancedVideoDecryptor {
   }
 
   // ================================================
-  // BANDWIDTH & ADAPTIVE BITRATE CONTROL
-  // ================================================
-
-  startBandwidthMonitor() {
-    if (this.bandwidthMonitorInterval) {
-      clearInterval(this.bandwidthMonitorInterval);
-    }
-
-    this.bandwidthMonitorInterval = setInterval(() => {
-      this.updateBandwidthEstimate();
-      this.checkAndSwitchQuality();
-    }, this.config.bandwidthCheckInterval);
-
-    console.log("📊 Bandwidth monitor started");
-  }
-
-  updateBandwidthEstimate() {
-    const now = Date.now();
-    const timePassed = (now - this.stats.lastBandwidthUpdate) / 1000 + 0.001; // Avoid division by zero
-    const bytesInInterval = this.stats.bytesLoadedThisInterval;
-
-    if (bytesInInterval > 0) {
-      const bitsPerSecond = (bytesInInterval * 8) / timePassed;
-      const smoothingFactor = 0.7;
-
-      this.estimatedBandwidth =
-        this.estimatedBandwidth * smoothingFactor +
-        bitsPerSecond * (1 - smoothingFactor);
-
-      this.isLowBandwidth =
-        this.estimatedBandwidth < this.config.lowBandwidthThreshold;
-
-      console.log(
-        `📡 Bandwidth: ${(this.estimatedBandwidth / 1000000).toFixed(2)}Mbps (${bytesInInterval} bytes in ${timePassed.toFixed(1)}s)`,
-      );
-    }
-
-    this.stats.bytesLoadedThisInterval = 0;
-    this.stats.lastBandwidthUpdate = now;
-  }
-
-  checkAndSwitchQuality() {
-    if (
-      this.qualitySwitching ||
-      this.isSeeking ||
-      Date.now() - this.lastQualityAdjustment < 10000
-    ) {
-      return; // Don't switch too frequently
-    }
-
-    const videoElement = document.getElementById("secure-video");
-    if (!videoElement || videoElement.paused) return;
-
-    const targetQuality = this.selectQualityForBandwidth();
-
-    if (targetQuality && targetQuality !== this.currentQuality) {
-      console.log(
-        `🎬 Adaptive quality switch: ${this.currentQuality} → ${targetQuality}`,
-      );
-      this.stats.qualitySwitches.push({
-        time: new Date().toISOString(),
-        from: this.currentQuality,
-        to: targetQuality,
-        bandwidth: this.estimatedBandwidth,
-      });
-      this.lastQualityAdjustment = Date.now();
-      this.switchQuality(targetQuality);
-    }
-  }
-
-  selectQualityForBandwidth() {
-    const bandwidthMbps = this.estimatedBandwidth / 1000000;
-    const qualityBitrates = {
-      "144p": 0.3,
-      "240p": 0.6,
-      "360p": 1.2,
-      "480p": 2.0,
-      "720p": 4.0,
-      "1080p": 8.0,
-    };
-
-    let bestQuality = null;
-
-    for (const quality of this.availableQualities.sort()) {
-      const requiredMbps = qualityBitrates[quality] || 1.0;
-
-      if (bandwidthMbps >= requiredMbps * 1.5) {
-        bestQuality = quality;
-      } else {
-        break;
-      }
-    }
-
-    return bestQuality;
-  }
-
-  // ================================================
   // MEDIASOURCE MANAGEMENT
   // ================================================
 
@@ -450,6 +344,7 @@ class EnhancedVideoDecryptor {
 
     console.log("🎥 Preparing MediaSource");
 
+    // Create new MediaSource
     this.mediaSource = new MediaSource();
     const mediaSourceURL = URL.createObjectURL(this.mediaSource);
     videoElement.src = mediaSourceURL;
@@ -486,7 +381,7 @@ class EnhancedVideoDecryptor {
       throw new Error("Audio codec not supported");
     }
 
-    // Remove existing buffers
+    // Remove existing buffers if any (Firefox compatibility)
     if (this.videoBuffer) {
       try {
         if (!this.isFirefox()) {
@@ -513,6 +408,7 @@ class EnhancedVideoDecryptor {
     this.videoBuffer = this.mediaSource.addSourceBuffer(videoCodec);
     this.audioBuffer = this.mediaSource.addSourceBuffer(audioCodec);
 
+    // Add event listeners
     this.videoBuffer.addEventListener("updateend", () =>
       this.onBufferUpdateEnd("video"),
     );
@@ -534,7 +430,7 @@ class EnhancedVideoDecryptor {
     console.log("🎬 Fetching init segments...");
 
     try {
-      // Reset timestampOffset
+      // CRITICAL: Reset timestampOffset BEFORE appending init segments
       if (this.videoBuffer && !this.videoBuffer.updating) {
         this.videoBuffer.timestampOffset = 0;
       }
@@ -551,12 +447,15 @@ class EnhancedVideoDecryptor {
         ),
       ]);
 
+      // Append video init
       this.videoBuffer.appendBuffer(vInit);
       await this.waitForBufferUpdate(this.videoBuffer);
 
+      // Append audio init
       this.audioBuffer.appendBuffer(aInit);
       await this.waitForBufferUpdate(this.audioBuffer);
 
+      // Set MediaSource duration
       const maxChunks = Math.max(
         this.currentQualityState.maxVideoChunks,
         this.currentQualityState.maxAudioChunks,
@@ -567,7 +466,7 @@ class EnhancedVideoDecryptor {
         this.mediaSource.duration = totalDuration;
       }
 
-      console.log(`✅ Init segments appended (duration: ${totalDuration}s)`);
+      console.log(`✅ Init segments appended, duration: ${totalDuration}s`);
     } catch (error) {
       console.error("Failed to append init segments:", error);
       throw error;
@@ -591,13 +490,11 @@ class EnhancedVideoDecryptor {
       throw new Error(`Failed to fetch ${track} init segment`);
     }
 
-    const data = await response.arrayBuffer();
-    this.stats.bytesLoadedThisInterval += data.byteLength;
-    return data;
+    return response.arrayBuffer();
   }
 
   // ================================================
-  // CHUNK LOADING & STREAMING - OPTIMIZED
+  // CHUNK LOADING & STREAMING - FIXED
   // ================================================
 
   startChunkLoader() {
@@ -605,7 +502,7 @@ class EnhancedVideoDecryptor {
       clearInterval(this.loaderInterval);
     }
 
-    const loadInterval = this.isMobile ? 500 : 300;
+    const loadInterval = this.isMobile ? 300 : 200;
 
     this.loaderInterval = setInterval(() => {
       this.manageChunkLoading();
@@ -631,12 +528,7 @@ class EnhancedVideoDecryptor {
     if (!videoElement) return;
 
     // Skip if transitioning
-    if (
-      this.isSeeking ||
-      this.qualitySwitching ||
-      this.audioSwitching ||
-      this.abortPlayback
-    ) {
+    if (this.isSeeking || this.qualitySwitching || this.audioSwitching) {
       return;
     }
 
@@ -653,18 +545,11 @@ class EnhancedVideoDecryptor {
     const bufferedAhead = this.getBufferedAhead(videoElement);
     const chunksAhead = Math.floor(bufferedAhead / chunkDuration);
 
-    // Adaptive target based on bandwidth
-    let targetChunksAhead = this.config.chunkLoadAhead;
+    const targetChunksAhead = this.isMobile
+      ? this.config.chunkLoadAhead * this.config.mobileBufferMultiplier
+      : this.config.chunkLoadAhead;
 
-    if (this.isMobile) {
-      targetChunksAhead *= this.config.mobileBufferMultiplier;
-    }
-
-    if (this.isLowBandwidth) {
-      targetChunksAhead *= 0.8;
-    }
-
-    // Load chunks if needed
+    // FIXED: Sequential chunk loading
     if (chunksAhead < targetChunksAhead) {
       const chunksToLoad = Math.ceil(targetChunksAhead - chunksAhead);
       const maxVideoChunks = this.currentQualityState.maxVideoChunks;
@@ -673,7 +558,8 @@ class EnhancedVideoDecryptor {
       let chunksLoaded = 0;
       let checkIndex = currentChunk;
 
-      while (chunksLoaded < chunksToLoad && checkIndex < maxVideoChunks + 1) {
+      while (chunksLoaded < chunksToLoad) {
+        // Check bounds - stop only if BOTH streams exhausted
         const videoExhausted = checkIndex >= maxVideoChunks;
         const audioExhausted = checkIndex >= maxAudioChunks;
 
@@ -684,6 +570,7 @@ class EnhancedVideoDecryptor {
           break;
         }
 
+        // Check if chunk already loaded
         const videoLoaded = this.isChunkProcessed(
           "video",
           this.currentQuality,
@@ -697,16 +584,22 @@ class EnhancedVideoDecryptor {
           checkIndex,
         );
 
+        // Only load if not already loaded
         if (!videoLoaded || !audioLoaded) {
           await this.loadChunkPair(checkIndex);
           chunksLoaded++;
         }
 
         checkIndex++;
+
+        // Safety limit to prevent infinite loops
+        if (checkIndex > currentChunk + targetChunksAhead + 10) {
+          break;
+        }
       }
     }
 
-    // Smart buffer cleanup
+    // Cleanup old buffers
     this.cleanupOldBuffers(videoElement);
   }
 
@@ -714,6 +607,7 @@ class EnhancedVideoDecryptor {
     const quality = this.currentQuality;
     const audioTrack = this.currentAudioTrack;
 
+    // Check if already processed
     const videoProcessed = this.isChunkProcessed(
       "video",
       quality,
@@ -731,7 +625,7 @@ class EnhancedVideoDecryptor {
       return;
     }
 
-    // Load with proper fetch control
+    // Load independently
     const videoPromise = this.loadSingleChunk("video", quality, 0, chunkIndex);
     const audioPromise = this.loadSingleChunk(
       "audio",
@@ -740,27 +634,31 @@ class EnhancedVideoDecryptor {
       chunkIndex,
     );
 
+    // Wait for both, but handle independently
     const [videoResult, audioResult] = await Promise.allSettled([
       videoPromise,
       audioPromise,
     ]);
 
+    // Check results
     const videoData =
       videoResult.status === "fulfilled" ? videoResult.value : null;
     const audioData =
       audioResult.status === "fulfilled" ? audioResult.value : null;
 
+    // Queue if we have at least video (audio is optional for some streams)
     if (videoData) {
       this.chunkQueue.push({
         index: chunkIndex,
         quality: quality,
         audioTrack: audioTrack,
         video: videoData,
-        audio: audioData,
+        audio: audioData, // Can be null if no audio chunks exist
       });
 
       this.stats.chunksLoaded++;
 
+      // Process queue if not busy
       if (
         !this.processingQueue &&
         !this.videoBuffer.updating &&
@@ -768,15 +666,17 @@ class EnhancedVideoDecryptor {
       ) {
         this.processChunkQueue();
       }
+    } else {
+      console.warn(`⚠️ No video data for chunk ${chunkIndex}, skipping`);
     }
   }
 
   async loadSingleChunk(type, quality, track, index) {
+    // Check if should skip
     const state = this.getChunkState(type, quality, track, index);
 
-    // Use exponential backoff for retries
     if (state.retries >= this.config.maxRetries) {
-      console.log(`⏭️ Skipping ${type} chunk ${index} (max retries reached)`);
+      console.log(`⏭️ Skipping ${type} chunk ${index} (max retries)`);
       this.setChunkState(type, quality, track, index, {
         status: "skipped",
         retries: state.retries,
@@ -784,11 +684,13 @@ class EnhancedVideoDecryptor {
       return null;
     }
 
+    // Check bounds
     const maxChunks =
       type === "video"
         ? this.currentQualityState.maxVideoChunks
         : this.currentQualityState.maxAudioChunks;
 
+    // If no audio chunks exist at all, skip audio loading
     if (type === "audio" && maxChunks === 0) {
       this.setChunkState(type, quality, track, index, {
         status: "skipped",
@@ -805,6 +707,7 @@ class EnhancedVideoDecryptor {
       return null;
     }
 
+    // Mark as loading
     this.setChunkState(type, quality, track, index, {
       status: "loading",
       retries: state.retries,
@@ -812,8 +715,8 @@ class EnhancedVideoDecryptor {
 
     try {
       const data = await this.fetchAndDecryptChunk(type, quality, track, index);
-      this.stats.bytesLoadedThisInterval += data.byteLength;
 
+      // Mark as loaded
       this.setChunkState(type, quality, track, index, {
         status: "loaded",
         retries: 0,
@@ -823,9 +726,11 @@ class EnhancedVideoDecryptor {
     } catch (error) {
       console.warn(`Failed to load ${type} chunk ${index}:`, error.message);
 
+      // Classify error
       const errorType = this.classifyError(error);
 
       if (errorType === "NOT_FOUND") {
+        // Chunk doesn't exist - skip permanently
         this.setChunkState(type, quality, track, index, {
           status: "skipped",
           retries: state.retries,
@@ -833,11 +738,7 @@ class EnhancedVideoDecryptor {
         return null;
       }
 
-      if (errorType === "ABORTED") {
-        // Don't retry aborted requests
-        return null;
-      }
-
+      // Retry
       if (state.retries < this.config.maxRetries) {
         const delay = this.config.retryDelay * Math.pow(2, state.retries);
         console.log(
@@ -854,6 +755,7 @@ class EnhancedVideoDecryptor {
         return this.loadSingleChunk(type, quality, track, index);
       }
 
+      // Max retries reached
       this.setChunkState(type, quality, track, index, {
         status: "skipped",
         retries: state.retries,
@@ -878,7 +780,6 @@ class EnhancedVideoDecryptor {
       headers: {
         "Cache-Control": "no-cache",
         Pragma: "no-cache",
-        "Accept-Encoding": "gzip, deflate", // Hint server to compress
       },
     });
 
@@ -945,8 +846,12 @@ class EnhancedVideoDecryptor {
     if (this.videoBuffer.updating || this.audioBuffer.updating) {
       return;
     }
-
-    if (this.isSeeking || this.qualitySwitching || this.audioSwitching) {
+    if (
+      this.isSeeking ||
+      this.qualitySwitching ||
+      this.audioSwitching ||
+      this.streamEnded
+    ) {
       return;
     }
 
@@ -956,6 +861,7 @@ class EnhancedVideoDecryptor {
       while (this.chunkQueue.length > 0) {
         const chunk = this.chunkQueue[0];
 
+        // Validate quality matches current
         if (chunk.quality !== this.currentQuality) {
           console.log(`⏭️ Skipping chunk from old quality: ${chunk.quality}`);
           this.chunkQueue.shift();
@@ -972,6 +878,7 @@ class EnhancedVideoDecryptor {
 
         if (!this.canAppend(this.videoBuffer)) return;
 
+        // Append video if present
         if (chunk.video && !this.videoBuffer.updating) {
           this.videoBuffer.appendBuffer(chunk.video);
           await this.waitForBufferUpdate(this.videoBuffer);
@@ -979,14 +886,18 @@ class EnhancedVideoDecryptor {
 
         if (!this.canAppend(this.audioBuffer)) return;
 
+        // Append audio if present
         if (chunk.audio && !this.audioBuffer.updating) {
           this.audioBuffer.appendBuffer(chunk.audio);
           await this.waitForBufferUpdate(this.audioBuffer);
         }
 
         console.log(`✅ Chunk ${chunk.index} appended (${chunk.quality})`);
+
+        // Remove from queue
         this.chunkQueue.shift();
 
+        // Check if buffers need update
         if (this.videoBuffer.updating || this.audioBuffer.updating) {
           break;
         }
@@ -994,6 +905,7 @@ class EnhancedVideoDecryptor {
     } catch (error) {
       console.error("Queue processing error:", error);
 
+      // Remove problematic chunk
       if (this.chunkQueue.length > 0) {
         const badChunk = this.chunkQueue.shift();
         console.warn(`🗑️ Removed problematic chunk ${badChunk.index}`);
@@ -1048,45 +960,53 @@ class EnhancedVideoDecryptor {
     const oldQuality = this.currentQuality;
 
     try {
-      this.abortPlayback = true;
-
+      // Pause playback
       if (wasPlaying) {
         videoElement.pause();
       }
 
+      // Stop loader
       this.stopChunkLoader();
 
-      // Abort only in-flight requests, not for playback
-      const oldController = this.fetchController;
+      // Abort in-flight requests
+      this.fetchController.abort();
       this.fetchController = new AbortController();
 
-      setTimeout(() => {
-        try {
-          oldController.abort();
-        } catch (e) {
-          // Ignore abort errors
-        }
-      }, 100);
-
+      // Clear old quality chunks from state
       this.clearQualityChunks(this.currentQuality);
+
+      // Clear queue
       this.chunkQueue = [];
       this.processingQueue = false;
 
+      // Update quality BEFORE clearing buffers
       this.currentQuality = newQuality;
 
+      // Initialize new quality state
       await this.initializeQualityState(newQuality, this.currentAudioTrack);
 
+      // Clear buffers completely
       await this.clearBuffers();
+
+      // CRITICAL FIX: Recreate source buffers for quality switch
       //await this.initSourceBuffers();
+
+      // Re-append init segments with new quality
       await this.appendInitSegments();
 
+      // Set video time
       videoElement.currentTime = currentTime;
 
-      this.abortPlayback = false;
+      // Restart loader
       this.startChunkLoader();
 
+      // Resume playback
       if (wasPlaying) {
+        // Wait for buffer to be ready
         setTimeout(async () => {
+          console.log("⏳ Waiting for quality switch buffer...");
+
+          // Create promise for buffer readiness
           const canPlayPromise = new Promise((resolve) => {
             const checkBuffer = () => {
               const videoBuffer = this.mediaSource.sourceBuffers[0];
@@ -1137,7 +1057,11 @@ class EnhancedVideoDecryptor {
           });
 
           await canPlayPromise;
+          console.log(
+            `✅ Quality switch buffer ready - readyState: ${videoElement.readyState}`,
+          );
 
+          // Try to play with retries
           for (let attempt = 0; attempt < 5; attempt++) {
             try {
               await videoElement.play();
@@ -1168,7 +1092,6 @@ class EnhancedVideoDecryptor {
       return false;
     } finally {
       this.qualitySwitching = false;
-      this.abortPlayback = false;
     }
   }
 
@@ -1203,6 +1126,7 @@ class EnhancedVideoDecryptor {
 
       this.stopChunkLoader();
 
+      // Clear audio chunks for current track
       const quality = this.currentQuality;
       for (const [key] of this.chunkState.audio) {
         if (key.startsWith(`${quality}:${this.currentAudioTrack}:`)) {
@@ -1210,16 +1134,21 @@ class EnhancedVideoDecryptor {
         }
       }
 
+      // Clear audio from queue
       this.chunkQueue = this.chunkQueue.filter(
         (c) => c.audioTrack !== this.currentAudioTrack,
       );
 
+      // Update track
       this.currentAudioTrack = trackIndex;
 
+      // Update quality state
       await this.initializeQualityState(this.currentQuality, trackIndex);
 
+      // Clear audio buffer
       await this.clearAudioBuffer();
 
+      // Re-fetch audio init
       const audioInit = await this.fetchInitSegment(
         "audio",
         this.currentQuality,
@@ -1228,6 +1157,7 @@ class EnhancedVideoDecryptor {
       this.audioBuffer.appendBuffer(audioInit);
       await this.waitForBufferUpdate(this.audioBuffer);
 
+      // Restart loader
       this.startChunkLoader();
 
       if (wasPlaying) {
@@ -1252,7 +1182,7 @@ class EnhancedVideoDecryptor {
   }
 
   // ================================================
-  // BUFFER MANAGEMENT - OPTIMIZED
+  // BUFFER MANAGEMENT - FIXED
   // ================================================
 
   getBufferedAhead(videoElement) {
@@ -1316,15 +1246,17 @@ class EnhancedVideoDecryptor {
     }, this.config.bufferCheckInterval);
   }
 
+  // FIXED: Clear ALL buffered ranges and reset timestampOffset
   async clearBuffers() {
     try {
       if (this.videoBuffer && this.videoBuffer.buffered.length > 0) {
+        // Remove all buffered ranges
         for (let i = this.videoBuffer.buffered.length - 1; i >= 0; i--) {
           const start = this.videoBuffer.buffered.start(i);
           const end = this.videoBuffer.buffered.end(i);
           if (end > start) {
             console.log(
-              `🗑️ Clearing video buffer: ${start.toFixed(2)}s - ${end.toFixed(2)}s`,
+              `🗑️ Clearing video buffer range ${i}: ${start.toFixed(2)}s - ${end.toFixed(2)}s`,
             );
             this.videoBuffer.remove(start, end);
             await this.waitForBufferUpdate(this.videoBuffer);
@@ -1333,12 +1265,13 @@ class EnhancedVideoDecryptor {
       }
 
       if (this.audioBuffer && this.audioBuffer.buffered.length > 0) {
+        // Remove all buffered ranges
         for (let i = this.audioBuffer.buffered.length - 1; i >= 0; i--) {
           const start = this.audioBuffer.buffered.start(i);
           const end = this.audioBuffer.buffered.end(i);
           if (end > start) {
             console.log(
-              `🗑️ Clearing audio buffer: ${start.toFixed(2)}s - ${end.toFixed(2)}s`,
+              `🗑️ Clearing audio buffer range ${i}: ${start.toFixed(2)}s - ${end.toFixed(2)}s`,
             );
             this.audioBuffer.remove(start, end);
             await this.waitForBufferUpdate(this.audioBuffer);
@@ -1346,27 +1279,32 @@ class EnhancedVideoDecryptor {
         }
       }
 
+      // CRITICAL: Reset timestampOffset to 0 after clearing
       if (this.videoBuffer && !this.videoBuffer.updating) {
         this.videoBuffer.timestampOffset = 0;
+        console.log("🔄 Video timestampOffset reset to 0");
       }
 
       if (this.audioBuffer && !this.audioBuffer.updating) {
         this.audioBuffer.timestampOffset = 0;
+        console.log("🔄 Audio timestampOffset reset to 0");
       }
     } catch (error) {
       console.warn("Buffer clear warning:", error);
     }
   }
 
+  // FIXED: Clear all audio buffer ranges and reset timestampOffset
   async clearAudioBuffer() {
     try {
       if (this.audioBuffer && this.audioBuffer.buffered.length > 0) {
+        // Remove all buffered ranges
         for (let i = this.audioBuffer.buffered.length - 1; i >= 0; i--) {
           const start = this.audioBuffer.buffered.start(i);
           const end = this.audioBuffer.buffered.end(i);
           if (end > start) {
             console.log(
-              `🗑️ Clearing audio buffer: ${start.toFixed(2)}s - ${end.toFixed(2)}s`,
+              `🗑️ Clearing audio buffer range ${i}: ${start.toFixed(2)}s - ${end.toFixed(2)}s`,
             );
             this.audioBuffer.remove(start, end);
             await this.waitForBufferUpdate(this.audioBuffer);
@@ -1374,8 +1312,10 @@ class EnhancedVideoDecryptor {
         }
       }
 
+      // CRITICAL: Reset timestampOffset to 0 after clearing
       if (this.audioBuffer && !this.audioBuffer.updating) {
         this.audioBuffer.timestampOffset = 0;
+        console.log("🔄 Audio timestampOffset reset to 0");
       }
     } catch (error) {
       console.warn("Audio buffer clear warning:", error);
@@ -1623,14 +1563,17 @@ class EnhancedVideoDecryptor {
       const vttText = await response.text();
       const videoEl = document.getElementById("secure-video");
 
+      // Remove ALL existing subtitle tracks
       const existingTracks = videoEl.querySelectorAll(
         'track[kind="subtitles"]',
       );
       existingTracks.forEach((t) => t.remove());
 
+      // Create blob URL for VTT content
       const blob = new Blob([vttText], { type: "text/vtt" });
       const blobUrl = URL.createObjectURL(blob);
 
+      // Create new track element
       const trackEl = document.createElement("track");
       trackEl.kind = "subtitles";
       trackEl.label = track.title || track.language;
@@ -1640,10 +1583,12 @@ class EnhancedVideoDecryptor {
 
       videoEl.appendChild(trackEl);
 
+      // Wait for track to load
       await new Promise((resolve) => {
         trackEl.addEventListener("load", resolve, { once: true });
       });
 
+      // Enable the track
       trackEl.track.mode = "showing";
       this.currentSubtitle = trackIndex;
 
@@ -1660,10 +1605,12 @@ class EnhancedVideoDecryptor {
   disableSubtitles() {
     const videoEl = document.getElementById("secure-video");
 
+    // Disable all text tracks
     Array.from(videoEl.textTracks).forEach((t) => {
       t.mode = "disabled";
     });
 
+    // Remove track elements
     const existingTracks = videoEl.querySelectorAll('track[kind="subtitles"]');
     existingTracks.forEach((t) => t.remove());
 
@@ -1701,20 +1648,25 @@ class EnhancedVideoDecryptor {
   async hardRestart(videoId) {
     console.warn("💣 Hard restart: recreating video + MediaSource");
 
+    // Stop loaders
     this.stopChunkLoader();
     this.fetchController.abort();
 
+    // Cleanup decryptor
     this.cleanup();
 
+    // Destroy old video
     const oldVideo = document.getElementById("secure-video");
     oldVideo.pause();
     oldVideo.removeAttribute("src");
     oldVideo.load();
 
+    // Replace video element
     const newVideo = oldVideo.cloneNode(false);
     oldVideo.replaceWith(newVideo);
 
-    const decryptor = new EnhancedVideoDecryptor();
+    // Recreate decryptor
+    const decryptor = new VideoDecryptor();
     await decryptor.init(videoId);
     await decryptor.prepareMediaSource(newVideo);
 
@@ -1889,12 +1841,14 @@ class EnhancedVideoDecryptor {
   endStream() {
     if (this.streamEnded) return;
 
+    // Firefox: do NOT call endOfStream (causes issues)
     if (this.isFirefox()) {
       this.streamEnded = true;
-      console.log("🏁 Stream ended (Firefox mode)");
+      console.log("🏁 Stream ended (Firefox - no endOfStream call)");
       return;
     }
 
+    // Other browsers: call endOfStream
     if (this.mediaSource && this.mediaSource.readyState === "open") {
       try {
         this.mediaSource.endOfStream();
@@ -1937,17 +1891,8 @@ class EnhancedVideoDecryptor {
       this.heartbeatInterval = null;
     }
 
-    if (this.bandwidthMonitorInterval) {
-      clearInterval(this.bandwidthMonitorInterval);
-      this.bandwidthMonitorInterval = null;
-    }
-
     if (this.fetchController) {
-      try {
-        this.fetchController.abort();
-      } catch (e) {
-        // Ignore
-      }
+      this.fetchController.abort();
       this.fetchController = null;
     }
 
@@ -1975,8 +1920,6 @@ class EnhancedVideoDecryptor {
       initialized: this.isInitialized,
       videoId: this.videoId,
       currentQuality: this.currentQuality,
-      estimatedBandwidth: `${(this.estimatedBandwidth / 1000000).toFixed(2)}Mbps`,
-      isLowBandwidth: this.isLowBandwidth,
       currentAudioTrack: this.currentAudioTrack,
       qualityState: this.currentQualityState,
       videoChunksTracked: this.chunkState.video.size,
@@ -2014,6 +1957,4 @@ window.addEventListener("beforeunload", () => {
   }
 });
 
-console.log(
-  "🔐 Enhanced VideoDecryptor V3 loaded - Now with ABR & bandwidth optimization",
-);
+console.log("🔐 Enhanced VideoDecryptor V2 loaded");
